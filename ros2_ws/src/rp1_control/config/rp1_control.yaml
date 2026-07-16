@@ -1,0 +1,5 @@
+control_node:
+  ros__parameters:
+    track_width: 0.5        # meters, distance between left and right wheel contact points
+    max_wheel_speed: 1.0    # m/s at the wheel that maps to a normalized WheelCommand of 1.0
+    cmd_vel_timeout_sec: 0.5

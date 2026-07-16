@@ -1,0 +1,18 @@
+# Robot-specific overrides for the rp1 MVP, layered on top of each package's own defaults
+# (ros2_ws/src/*/config/*.yaml). Edit these once real hardware numbers / CAN setup are known;
+# everything else should keep working via the package defaults.
+
+teleop_node:
+  ros__parameters:
+    deadman_button: 4       # LB on Xbox Series X controller -- verify with `ros2 topic echo /joy`
+
+control_node:
+  ros__parameters:
+    track_width: 0.5        # meters -- set to the real distance between left/right wheels
+    max_wheel_speed: 1.0    # m/s at the wheel that should map to full WheelCommand output
+
+bridge_node:
+  ros__parameters:
+    can_iface: can0
+    dronecan_node_id: 42
+    require_can: true       # set false to dry-run the ROS2 pipeline without CAN hardware

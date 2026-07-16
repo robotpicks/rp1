@@ -1,0 +1,17 @@
+# Xbox Series X controller mapping for rp1 teleop.
+#
+# Axis/button indices below are the common Linux `joy_node` mapping for Xbox controllers
+# (xpad driver) but this varies by kernel/driver version and USB vs Bluetooth pairing.
+# Verify on your hardware before trusting it: `ros2 topic echo /joy` and wiggle each stick,
+# or use `jstest`/`evtest` directly (see docs/wiring.md and the plan's verification section).
+
+teleop_node:
+  ros__parameters:
+    axis_linear: 1        # left stick, vertical
+    axis_angular: 3        # right stick, horizontal
+    scale_linear: 1.0      # m/s at full stick deflection
+    scale_angular: 2.0     # rad/s at full stick deflection
+    invert_linear: false
+    invert_angular: false
+    deadman_button: 4      # LB
+    joy_timeout_sec: 0.5   # publish zero Twist if /joy goes stale for longer than this

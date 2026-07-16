@@ -1,0 +1,7 @@
+bridge_node:
+  ros__parameters:
+    can_iface: can0          # SocketCAN interface for the DroneCAN bus to the bridge MCU
+    dronecan_node_id: 42     # this PC's DroneCAN node ID (must not collide with the bridge MCU's)
+    command_rate_hz: 50.0
+    command_timeout_sec: 0.2 # zero the RawCommand if no WheelCommand arrives within this window
+    require_can: true        # false = dry-run (log intended frames, don't open a CAN device)
