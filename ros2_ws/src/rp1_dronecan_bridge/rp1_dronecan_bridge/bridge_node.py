@@ -101,7 +101,10 @@ class BridgeNode(RosNode):
 
         if self._dronecan_node is not None:
             import dronecan
-            self._dronecan_node.broadcast(dronecan.uavcan.equipment.esc.RawCommand(cmd=raw_cmd))
+            try:
+                self._dronecan_node.broadcast(dronecan.uavcan.equipment.esc.RawCommand(cmd=raw_cmd))
+            except Exception as exc:  # noqa: BLE001 - a dropped command tick must not kill the node
+                self.get_logger().error('DroneCAN broadcast error: %s' % exc)
         else:
             self.get_logger().debug('dry-run RawCommand: %s' % raw_cmd)
 
