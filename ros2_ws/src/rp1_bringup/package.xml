@@ -13,6 +13,7 @@
   <exec_depend>rp1_teleop</exec_depend>
   <exec_depend>rp1_control</exec_depend>
   <exec_depend>rp1_dronecan_bridge</exec_depend>
+  <exec_depend>rp1_sim</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>

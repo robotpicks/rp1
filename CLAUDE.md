@@ -7,23 +7,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 rp1 is a 4-wheel agricultural robot. End-state hardware: each wheel has its own VESC-driven
 drive motor **and** a continuous-rotation (360°) steering joint (a swerve-drive base). This
 repo currently targets the **MVP: the 4 drive wheels only, skid-steer, no steering joints
-yet** — see `docs/can_id_map.md`, `docs/wiring.md`, and `firmware/bridge_node/README.md` for
-the phased plan and open hardware decisions.
+yet** — see `docs/can_id_map.md` and `docs/wiring.md` for the phased plan and open hardware
+decisions.
 
 Communication architecture (PC → robot):
 
 ```
 [Xbox Series X controller] --joy--> ROS2 (rp1_teleop -> /cmd_vel -> rp1_control -> /wheel_cmd)
         -> rp1_dronecan_bridge (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
-        -> [Bridge MCU: custom firmware, not yet built] -> VESC-CAN -> VESC #1-4 -> motors
+        -> VESC #1-4 (CAN mode: UAVCAN) -> motors
 ```
 
 - **DroneCAN is the runtime transport** from the PC to the robot (via `rp1_dronecan_bridge`).
-- **VESC's own USB/CAN protocol (VESC Tool) is only used for one-off per-motor configuration**
-  (setting CAN controller IDs, FOC tuning) — never in the runtime control path.
-- The bridge MCU (DroneCAN ⇄ VESC-CAN translator) is planned but **not implemented** —
-  `rp1_dronecan_bridge` can run today in `require_can:=false` dry-run mode against the rest of
-  the ROS2 pipeline without it.
+- **There is no separate bridge MCU.** VESC firmware has a built-in UAVCAN/DroneCAN CAN mode,
+  so the PC's CAN adapter wires directly to a single bus carrying the 4 VESCs. (An earlier plan
+  revision assumed a custom-firmware bridge MCU translating DroneCAN↔VESC-CAN; that's been
+  dropped now that VESC's native UAVCAN mode covers it — don't resurrect that architecture.)
+- **VESC's own USB CAN-config protocol (VESC Tool) is only used for one-off per-motor
+  configuration** (CAN mode, DroneCAN node ID, `esc_index`, FOC tuning) — never in the runtime
+  control path.
+- `rp1_dronecan_bridge` can run today in `require_can:=false` dry-run mode (logs intended
+  frames instead of opening a CAN device), and there are two ways to run the whole pipeline
+  with zero hardware — see "Simulation" below.
 
 ## Build / run
 
@@ -52,12 +57,30 @@ Run the DroneCAN bridge without CAN hardware attached (logs intended frames inst
 ros2 run rp1_dronecan_bridge bridge_node --ros-args -p require_can:=false
 ```
 
+Run the whole pipeline against `rp1_sim` (pure ROS2, no CAN at all — the main way to check the
+ROS2 architecture itself):
+```bash
+ros2 launch rp1_bringup rp1_mvp_sim.launch.py
+```
+
 There is no test suite yet. Verification so far has been manual: `colcon build`, then running
 nodes and publishing synthetic `/cmd_vel` / `/joy` messages and checking `/wheel_cmd`. When
 using `ros2 topic echo`/`hz` piped through `head`/`tail` or wrapped in `timeout`, this sandbox
 has shown flaky hangs/false failures — redirect to a file and inspect it instead of piping, and
 prefer a small standalone `rclpy` subscriber script over `ros2 topic echo` if a CLI check seems
 to hang without an obvious code reason.
+
+The installed `dronecan` (1.0.27) + `python-can` (4.6.1) pair has two real bugs, both worked
+around in `bridge_node.py` and `simulation/sim_vesc_node.py` — don't remove these if you see
+them and think they look unnecessary:
+- `dronecan`'s python-can driver calls `bus.flush_tx_buffer()` after every send; python-can ≥4
+  doesn't implement it for any interface (`NotImplementedError`), which kills the writer thread
+  on the first broadcast. Worked around by monkeypatching `can.bus.BusABC.flush_tx_buffer` to a
+  no-op (`_patch_python_can_flush_tx_buffer()` in both files).
+- `dronecan`'s `receive()` multiplies any `spin(timeout=X)` by 1000 before passing it to
+  python-can's `recv()`, which wants seconds, not ms — so `spin(timeout=0.1)` blocks for ~100s
+  instead of 100ms. Only `spin(timeout=0)` is safe; both files busy-poll with `timeout=0` plus a
+  short `sleep`/ROS2 timer instead of relying on a blocking nonzero timeout.
 
 Python deps for the DroneCAN bridge (`dronecan`, `python-can`) are not ROS/apt packages — they
 were installed with `pip install --user --break-system-packages dronecan python-can` (see
@@ -69,22 +92,21 @@ sandbox.
 
 ### Workspace layout
 
-- `firmware/bridge_node/` — planned DroneCAN ⇄ VESC-CAN bridge firmware (STM32, two CAN
-  controllers: CAN1 to the PC, CAN2 as VESC-CAN master to the 4 VESCs). Not implemented yet;
-  see its README for the bring-up plan.
 - `ros2_ws/src/` — colcon workspace, one package per pipeline stage (see below).
-- `docs/can_id_map.md` — the source of truth for DroneCAN node IDs, the wheel-index ↔
-  `esc_index` ↔ VESC controller ID mapping, and the (not-yet-chosen) VESC CAN command type.
-  Both the PC-side bridge node and the future MCU firmware must agree with this file.
+- `docs/can_id_map.md` — the source of truth for DroneCAN node IDs and the wheel-index ↔
+  `esc_index` mapping. `rp1_dronecan_bridge` and each VESC's UAVCAN config (set via VESC Tool)
+  must agree with this file.
 - `docs/wiring.md` — bus wiring, VESC one-off configuration notes, controller pairing, and the
-  hardware bring-up order (bench-test the bridge firmware before ROS2; wheels off the ground
-  before driving).
+  hardware bring-up order (configure each VESC's UAVCAN settings before sharing the bus; wheels
+  off the ground before driving).
+- `simulation/` — bonus DroneCAN-level simulator (virtual CAN + fake VESCs), separate from
+  `rp1_sim`. See its own section below.
 
 ### ROS2 packages (`ros2_ws/src/`) and topic flow
 
 ```
-/joy --[rp1_teleop]--> /cmd_vel --[rp1_control]--> /wheel_cmd --[rp1_dronecan_bridge]--> DroneCAN
-                                                                  DroneCAN --> /wheel_feedback
+/joy --[rp1_teleop]--> /cmd_vel --[rp1_control]--> /wheel_cmd --[rp1_dronecan_bridge]--> DroneCAN --> VESCs
+                                                       (or)--[rp1_sim]--> /odom, /tf          DroneCAN --> /wheel_feedback
 ```
 
 - **`rp1_msgs`** — the only `ament_cmake`/`rosidl` package. Defines `WheelCommand` (per-wheel
@@ -103,23 +125,41 @@ sandbox.
   `[-1, 1]`, **both** are scaled down together (see `_publish`) to preserve the requested turn
   ratio rather than clipping independently — preserve this behavior if you touch the scaling.
   Has its own `/cmd_vel` staleness watchdog independent of rp1_teleop's.
-- **`rp1_dronecan_bridge`** (`bridge_node.py`) — the PC-side half of the DroneCAN bridge (the
-  MCU-side half lives in `firmware/bridge_node/`, not yet built). Uses the `dronecan` python
-  library over a SocketCAN interface (`can_iface` param, default `can0`). Pumps
-  `dronecan_node.spin(timeout=0)` on a fast ROS2 timer to process incoming CAN frames
-  alongside broadcasting `esc.RawCommand` at `command_rate_hz`. `require_can: false` skips
-  opening a CAN device entirely and just logs what would be sent — the way to exercise this
-  node without the (not-yet-built) bridge MCU or any CAN adapter attached.
-- **`rp1_bringup`** — no code, just `launch/rp1_mvp.launch.py` and `config/rp1_mvp.yaml`. Each
-  node's parameters are layered: that node's own package `config/*.yaml` defaults first, then
-  `rp1_bringup`'s `rp1_mvp.yaml` on top for the handful of robot-specific values (track width,
-  CAN interface, deadman button) — add new tunables to the owning package's default config, and
-  only add an override here if it's genuinely robot-specific/likely to change per deployment.
+- **`rp1_dronecan_bridge`** (`bridge_node.py`) — talks DroneCAN directly to the VESCs (no
+  separate bridge MCU, see "What this is" above). Uses the `dronecan` python library over a
+  SocketCAN interface (`can_iface` param, default `can0`). Pumps `dronecan_node.spin(timeout=0)`
+  on a fast ROS2 timer to process incoming CAN frames alongside broadcasting `esc.RawCommand`
+  at `command_rate_hz`. `require_can: false` skips opening a CAN device entirely and just logs
+  what would be sent.
+- **`rp1_sim`** (`sim_bridge_node.py`) — pure-ROS2 drop-in replacement for
+  `rp1_dronecan_bridge` with **no CAN/DroneCAN involved at all**: subscribes the same
+  `/wheel_cmd`, integrates skid-steer dynamics (must be kept in sync with `rp1_control`'s
+  `track_width`/`max_wheel_speed` — see `config/rp1_sim.yaml`), and publishes `/wheel_feedback`
+  plus `nav_msgs/Odometry` + an `odom`→`base_link` TF. The rpm/voltage/current numbers are a
+  plausible telemetry shape, not a physically accurate motor model. This is the primary way to
+  validate the ROS2 graph itself (e.g. with rviz2) before any CAN hardware exists.
+- **`rp1_bringup`** — no code, just launch files + `config/rp1_mvp.yaml`. Two launch files:
+  `rp1_mvp.launch.py` (real hardware, ends in `rp1_dronecan_bridge`) and `rp1_mvp_sim.launch.py`
+  (identical joy/teleop/control stack, but ends in `rp1_sim` instead). Each node's parameters
+  are layered: that node's own package `config/*.yaml` defaults first, then `rp1_bringup`'s
+  `rp1_mvp.yaml` on top for the handful of robot-specific values (track width, CAN interface,
+  deadman button) — add new tunables to the owning package's default config, and only add an
+  override here if it's genuinely robot-specific/likely to change per deployment.
+
+### Simulation (two tiers)
+
+- `rp1_sim` (see above) — pure ROS2, no CAN. Primary tool for checking the ROS2 architecture.
+- `simulation/sim_vesc_node.py` (bonus) — a standalone script (no ROS2 dependency, since the
+  real VESCs don't have one either) using `python-dronecan` over a Linux `vcan` interface,
+  pretending to be the 4 VESCs. Use this to exercise the real `rp1_dronecan_bridge` — actual
+  DroneCAN framing over a virtual CAN bus — without any physical hardware. See
+  `simulation/README.md` for `vcan0` setup (needs `sudo`, not automatable in a sandboxed
+  session).
 
 ### Extending to full swerve (steering joints) — not yet started
 
-When steering joints are added, the intended shape of the change (see `docs/can_id_map.md` and
-the firmware README) is: extend the bridge firmware to also handle
+When steering joints are added, the intended shape of the change (see `docs/can_id_map.md`) is:
+extend `rp1_dronecan_bridge` (and each steering actuator's DroneCAN config) to also handle
 `uavcan.equipment.actuator.ArrayCommand`/`Status`, and replace `rp1_control`'s skid-steer
 kinematics with full swerve inverse kinematics (per-wheel speed *and* angle, including wheel
 angle wrap for continuous joints). The steering actuator type (VESC position/FOC mode vs. a

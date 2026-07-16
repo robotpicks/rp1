@@ -2,12 +2,13 @@
 
 Subscribes to `rp1_msgs/WheelCommand` (from rp1_control) and broadcasts it on the DroneCAN bus
 as `uavcan.equipment.esc.RawCommand`, at a fixed rate with a command timeout failsafe. Listens
-for `uavcan.equipment.esc.Status` frames coming back from the bridge MCU and republishes them
-as `rp1_msgs/WheelFeedback`.
+for `uavcan.equipment.esc.Status` frames coming back from the VESCs (which speak DroneCAN
+natively via their UAVCAN CAN mode -- no separate bridge MCU) and republishes them as
+`rp1_msgs/WheelFeedback`.
 
 The wheel index convention (rp1_msgs.msg.WheelCommand.WHEEL_*) is used directly as the DroneCAN
-esc_index, and must match the mapping documented in docs/can_id_map.md and implemented in the
-bridge MCU firmware.
+esc_index, and must match the mapping documented in docs/can_id_map.md and each VESC's UAVCAN
+config (set via VESC Tool).
 
 If `require_can` is false, no CAN device is opened and RawCommand frames are logged instead of
 sent -- useful for exercising the rest of the ROS2 pipeline before the bridge hardware exists.
@@ -18,6 +19,15 @@ from rclpy.node import Node as RosNode
 from rp1_msgs.msg import WheelCommand, WheelFeedback
 
 RAW_COMMAND_MAX_MAGNITUDE = 8191  # uavcan.equipment.esc.RawCommand.cmd is saturated int14
+
+
+def _patch_python_can_flush_tx_buffer() -> None:
+    """dronecan's python-can driver calls bus.flush_tx_buffer() after every send, but
+    python-can >=4's BusABC no longer implements it for any interface (raises
+    NotImplementedError), which otherwise kills the writer thread on the first broadcast.
+    """
+    import can
+    can.bus.BusABC.flush_tx_buffer = lambda self: None
 
 
 class BridgeNode(RosNode):
@@ -55,7 +65,11 @@ class BridgeNode(RosNode):
 
     def _make_dronecan_node(self):
         import dronecan
-        node = dronecan.make_node(self._can_iface, node_id=self._dronecan_node_id)
+        _patch_python_can_flush_tx_buffer()
+        # bitrate is required by this dronecan version's python-can driver even for SocketCAN,
+        # which actually ignores it (the interface's real bitrate is set via `ip link`).
+        node = dronecan.make_node(self._can_iface, node_id=self._dronecan_node_id,
+                                   bitrate=1000000)
         node.add_handler(dronecan.uavcan.equipment.esc.Status, self._on_esc_status)
         self.get_logger().info('DroneCAN node up on %s (node_id=%d)'
                                 % (self._can_iface, self._dronecan_node_id))
@@ -63,6 +77,9 @@ class BridgeNode(RosNode):
 
     def _spin_dronecan(self) -> None:
         try:
+            # timeout=0 deliberately: this dronecan/python-can version pair multiplies any
+            # nonzero timeout by 1000 before handing it to python-can's recv() (which wants
+            # seconds, not ms), so e.g. timeout=0.01 would block for ~10s instead of 10ms.
             self._dronecan_node.spin(timeout=0)
         except Exception as exc:  # noqa: BLE001 - surface any driver/transport error, keep node alive
             self.get_logger().error('DroneCAN spin error: %s' % exc)
