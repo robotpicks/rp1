@@ -14,9 +14,10 @@ Terminate the bus with 120 ohm resistors at each end per standard CAN wiring pra
 
 ## VESC configuration (one-off, not part of the runtime path)
 
-Each VESC is configured directly over its own USB link using VESC Tool: CAN mode = UAVCAN,
-DroneCAN node ID + `esc_index` (see `docs/can_id_map.md`), motor/FOC parameters, and
-current/duty limits. This is a bench/setup-time activity -- the runtime control path never
+Each VESC is configured directly over its own USB link using VESC Tool: CAN mode =
+**VESC+UAVCAN** (not plain UAVCAN -- see `docs/can_id_map.md` for why), CAN ID (doubles as the
+DroneCAN node ID in this mode) + `esc_index` (see `docs/can_id_map.md`), motor/FOC parameters,
+and current/duty limits. This is a bench/setup-time activity -- the runtime control path never
 talks to VESC Tool.
 
 `vesc_tool` also has a headless CLI mode, useful for scripting this instead of using the GUI:

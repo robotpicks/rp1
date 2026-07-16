@@ -15,7 +15,7 @@ Communication architecture (PC → robot):
 ```
 [Xbox Series X controller] --joy--> ROS2 (rp1_teleop -> /cmd_vel -> rp1_control -> /wheel_cmd)
         -> rp1_dronecan_bridge (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
-        -> VESC #1-4 (CAN mode: UAVCAN) -> motors
+        -> VESC #1-4 (CAN mode: VESC+UAVCAN) -> motors
 ```
 
 - **DroneCAN is the runtime transport** from the PC to the robot (via `rp1_dronecan_bridge`).

@@ -41,10 +41,29 @@ Each VESC's `esc_index` (set in VESC Tool, not its DroneCAN node ID) must match 
 
 ## VESC UAVCAN configuration (one-off, per VESC, via VESC Tool over USB)
 
-For each of the 4 VESCs: App Settings -> General -> CAN Mode = UAVCAN, set a unique DroneCAN
-node ID and the `esc_index` from the table above. This is a bench/setup-time activity done
-over VESC Tool's own USB link -- the runtime control path never touches VESC Tool.
+Firmware 7.00 (`/home/user/dev/bldc`, confirmed via `conf_general.h`) exposes **two** distinct
+UAVCAN CAN modes -- use **VESC+UAVCAN**, not plain **UAVCAN**:
 
-`uavcan.equipment.esc.RawCommand`'s `cmd` value maps to VESC's commanded duty cycle
-(-1.0..1.0 scaled to the int14 range) in UAVCAN CAN mode -- confirm against the specific VESC
-firmware version in use and record any deviation here.
+- `UAVCAN` (`CAN_MODE_UAVCAN`) -- pure UAVCAN, exclusive use of the bus. Incoming frames are
+  only ever interpreted as UAVCAN (`libcanard/canard_driver.c`'s own thread drains the CAN rx
+  queue directly).
+- `VESC+UAVCAN` (`CAN_MODE_VESC_UAVCAN`) -- **this is what we want.** UAVCAN and VESC's native
+  CAN protocol coexist on the same bus: each incoming frame is tried as a UAVCAN transfer first
+  and falls back to the normal VESC CAN handling if it isn't one (`comm/comm_can.c`, the
+  `cancom_process_thread` loop). Plain `UAVCAN` mode would prevent VESC Tool / normal VESC CAN
+  diagnostics from working on the shared bus.
+
+For each of the 4 VESCs: App Settings -> General -> CAN Mode = **VESC+UAVCAN**, and set:
+- **CAN ID** (the normal `controller_id` field, App Settings -> General -> CAN ID, range
+  0-253) -- this doubles as the DroneCAN node ID in `VESC+UAVCAN` mode; there is no separate
+  UAVCAN-only node ID field. Must be unique on the bus.
+- **`esc_index`** (App Settings -> General -> UAVCAN ESC index, the `can_esc_index` param,
+  range 0-255) -- the value from the wheel index table above.
+
+This is a bench/setup-time activity done over VESC Tool's own USB link -- the runtime control
+path never touches VESC Tool.
+
+`uavcan.equipment.esc.RawCommand`'s `cmd` value maps to VESC's commanded duty cycle: confirmed
+in firmware 7.00 as `raw_val = cmd.data[esc_index] / 8192.0` (int14 range -8192..8191 ->
+-1.0..1.0 duty), see `libcanard/canard_driver.c` around the `RawCommand` handler. Re-confirm
+against `/home/user/dev/bldc` if the firmware version changes.
