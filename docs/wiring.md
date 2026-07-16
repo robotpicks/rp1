@@ -28,9 +28,18 @@ The CAN mode/node ID/esc_index fields are part of the app configuration XML.
 
 ## Controller
 
-Xbox Series X controller, paired over USB or Bluetooth to the PC running ROS2. Verify it's
-seen as a joystick device and check axis/button numbering before trusting the defaults in
-`rp1_teleop/config/joy_xbox_series_x.yaml`:
+Xbox Series X controller. **Recommended default: wired USB-C, not Bluetooth.** Over Bluetooth
+it pairs as BLE HID (`hid_microsoft` driver, shows up via `bluetoothctl` rather than `xpad`),
+which on Ubuntu is prone to repeated connect/disconnect flapping (`joy_node` log alternating
+"Opened joystick" / "Unable to open ...") even at good signal strength -- a known Linux BT/Xbox
+issue, not a range problem. Wired USB avoids it entirely (and switches to the more stable
+`xpad` driver), which matters here since this is a robot control input, not just a games
+controller. If Bluetooth must be used, try `options bluetooth disable_ertm=1` in
+`/etc/modprobe.d/` first (the most commonly effective fix for this specific symptom) and check
+USB autosuspend isn't powering down the BT adapter (`/sys/bus/usb/devices/*/power/control`).
+
+Verify it's seen as a joystick device and check axis/button numbering before trusting the
+defaults in `rp1_teleop/config/joy_xbox_series_x.yaml`:
 
 ```bash
 ros2 run joy joy_node    # then, in another terminal:
