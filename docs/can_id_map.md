@@ -67,3 +67,37 @@ path never touches VESC Tool.
 in firmware 7.00 as `raw_val = cmd.data[esc_index] / 8192.0` (int14 range -8192..8191 ->
 -1.0..1.0 duty), see `libcanard/canard_driver.c` around the `RawCommand` handler. Re-confirm
 against `/home/user/dev/bldc` if the firmware version changes.
+
+## Steering actuator convention (bench, ahead of the MVP's "no steering joints" phasing)
+
+Firmware 7.00 (`add-actuator-arraycommand` branch, `/home/user/dev/bldc` commit `a242b9ae`)
+also implements `uavcan.equipment.actuator.ArrayCommand`/`Status` for position-controlled
+steering, reusing the *same* `uavcan_esc_index` VESC Tool field as the message's `actuator_id`
+(no separate config field) -- so a given VESC is either a drive wheel (`esc.RawCommand`/`Status`
+at its `esc_index`) or a steering actuator (`actuator.ArrayCommand`/`Status` at that same
+numeric value used as `actuator_id`), depending only on how the PC side addresses it.
+
+**Convention: steering `actuator_id` = drive wheel index + 4.**
+
+| Wheel index | Drive `esc_index` | Steering `actuator_id` |
+|-------------|--------------------|--------------------------|
+| 0 (Front-left)  | 0 | 4 |
+| 1 (Front-right) | 1 | 5 |
+| 2 (Rear-left)   | 2 | 6 |
+| 3 (Rear-right)  | 3 | 7 |
+
+Only wheels 1 and 2's steering (`actuator_id` 5 and 6) are wired up on the bench so far; 0 and
+3's steering (4 and 7) are unconfirmed.
+
+- `Command.command_type` -- only `COMMAND_TYPE_POSITION` (1) is implemented in firmware; the
+  other DSDL-defined types (UNITLESS/FORCE/SPEED/PWM) are not handled.
+- `Command.command_value` / `Status.position` are DSDL radians. Firmware converts to/from VESC's
+  own degrees internally (`mc_interface_set_pid_pos`/`mc_interface_get_pid_pos_now`) -- see
+  `libcanard/canard_driver.c`'s `handle_actuator_array_command`/`sendActuatorStatus`.
+- Real position control needs an encoder wired to the steering VESC (`mc_interface_set_pid_pos`
+  requires FOC position feedback); none of the bench steering VESCs have one yet, so position
+  values currently reflect FOC fighting phantom feedback, not real steering angle.
+- `ros2_ws/src/rp1_hardware_interface` bridges this to `ros2_control` (position command/state
+  interfaces per steering joint) directly over SocketCAN -- it does not go through
+  `rp1_dronecan_bridge`, which only ever speaks `esc.RawCommand`/`Status` for the 4 drive
+  wheels and has no notion of steering actuators.

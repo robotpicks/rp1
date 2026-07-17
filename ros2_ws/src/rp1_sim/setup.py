@@ -28,6 +28,7 @@ setup(
     entry_points={
         'console_scripts': [
             'sim_bridge_node = rp1_sim.sim_bridge_node:main',
+            'swerve_sim_node = rp1_sim.swerve_sim_node:main',
         ],
     },
 )

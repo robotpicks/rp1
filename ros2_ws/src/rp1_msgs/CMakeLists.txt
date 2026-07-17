@@ -8,6 +8,8 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WheelCommand.msg"
   "msg/WheelFeedback.msg"
+  "msg/SteeringCommand.msg"
+  "msg/SteeringFeedback.msg"
   DEPENDENCIES std_msgs
 )
 

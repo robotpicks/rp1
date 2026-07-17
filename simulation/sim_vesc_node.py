@@ -86,16 +86,30 @@ def main():
                 temperature=ROOM_TEMPERATURE_KELVIN,
             ))
 
-    node.periodic(1.0 / args.status_rate_hz, broadcast_status)
+    # Deliberately not using node.periodic(): verified experimentally that its callback never
+    # actually fires with this dronecan version (sched.scheduler.run(blocking=False) interaction
+    # issue) -- manual elapsed-time tracking in the main loop instead, same pattern already used
+    # in rp1_dronecan_bridge/bridge_node.py and the bench test scripts this session.
+    status_period = 1.0 / args.status_rate_hz
+    next_status_time = time.monotonic() + status_period
 
     print('sim_vesc_node: simulating %d VESCs on %s (node_id=%d)'
           % (NUM_WHEELS, args.iface, args.node_id))
     try:
         while True:
-            # timeout=0 deliberately: this dronecan/python-can version pair multiplies any
-            # nonzero timeout by 1000 before handing it to python-can's recv() (which wants
-            # seconds, not ms), so e.g. timeout=0.1 would block for ~100s instead of 100ms.
-            node.spin(timeout=0)
+            try:
+                # timeout=0 deliberately: this dronecan/python-can version pair multiplies any
+                # nonzero timeout by 1000 before handing it to python-can's recv() (which wants
+                # seconds, not ms), so e.g. timeout=0.1 would block for ~100s instead of 100ms.
+                node.spin(timeout=0)
+            except Exception as exc:  # noqa: BLE001 - a bad received frame must not kill the sim
+                print('sim_vesc_node: spin error, ignoring: %s' % exc)
+
+            now = time.monotonic()
+            if now >= next_status_time:
+                next_status_time = now + status_period
+                broadcast_status()
+
             time.sleep(0.01)
     except KeyboardInterrupt:
         pass

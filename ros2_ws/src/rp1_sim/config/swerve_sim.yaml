@@ -1,0 +1,12 @@
+swerve_sim_node:
+  ros__parameters:
+    track_width: 0.5        # meters, left-right wheel spacing -- must match rp1_control's if compared
+    wheelbase: 0.5           # meters, front-rear wheel spacing
+    max_wheel_speed: 1.0    # m/s at a normalized WheelCommand of 1.0
+    max_steering_rate: 6.0  # rad/s, simulated steering actuator slew rate
+    wheel_radius: 0.1       # meters, only used to turn wheel speed into a plausible rpm
+    update_rate_hz: 50.0
+    cmd_timeout_sec: 0.2
+    publish_tf: true
+    odom_frame_id: odom
+    base_frame_id: base_link
