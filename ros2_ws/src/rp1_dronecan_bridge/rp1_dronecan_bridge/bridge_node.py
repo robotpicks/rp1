@@ -71,16 +71,29 @@ class BridgeNode(RosNode):
         node = dronecan.make_node(self._can_iface, node_id=self._dronecan_node_id,
                                    bitrate=1000000)
         node.add_handler(dronecan.uavcan.equipment.esc.Status, self._on_esc_status)
+        # Referencing uavcan.equipment.actuator.Status registers its DTID (1011) in dronecan's
+        # global type table -- steering actuators sharing the bus otherwise make spin() raise
+        # "Unrecognised message type ID 1011" on every actuator.Status broadcast, since this
+        # bridge only ever imports the esc.* messages on its own.
+        node.add_handler(dronecan.uavcan.equipment.actuator.Status, lambda transfer_event: None)
         self.get_logger().info('DroneCAN node up on %s (node_id=%d)'
                                 % (self._can_iface, self._dronecan_node_id))
         return node
 
     def _spin_dronecan(self) -> None:
+        import dronecan
         try:
             # timeout=0 deliberately: this dronecan/python-can version pair multiplies any
             # nonzero timeout by 1000 before handing it to python-can's recv() (which wants
             # seconds, not ms), so e.g. timeout=0.01 would block for ~10s instead of 10ms.
             self._dronecan_node.spin(timeout=0)
+        except dronecan.transport.TransferError as exc:
+            # Bench steering firmware also broadcasts a high-rate custom message (observed DTID
+            # 20601, no public DSDL for it) that isn't part of any standard DroneCAN message set
+            # this bridge knows about -- can't be decoded or handled, just silently unrecognised.
+            # Don't spam ERROR for that expected case; still surface anything else at debug level.
+            if 'Unrecognised' not in str(exc):
+                self.get_logger().error('DroneCAN transfer error: %s' % exc)
         except Exception as exc:  # noqa: BLE001 - surface any driver/transport error, keep node alive
             self.get_logger().error('DroneCAN spin error: %s' % exc)
 
