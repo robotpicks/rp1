@@ -11,6 +11,7 @@
 
   <exec_depend>joy</exec_depend>
   <exec_depend>rp1_teleop</exec_depend>
+  <exec_depend>rp1_elrs</exec_depend>
   <exec_depend>rp1_control</exec_depend>
   <exec_depend>rp1_dronecan_bridge</exec_depend>
   <exec_depend>rp1_sim</exec_depend>

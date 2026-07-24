@@ -1,0 +1,18 @@
+# rp1_teleop mapping for the ExpressLRS link (the ELRS analogue of
+# rp1_teleop/config/joy_xbox_series_x.yaml).
+#
+# elrs_node publishes sensor_msgs/Joy where the axes are the CRSF channels listed in
+# rp1_elrs.yaml's `axis_channels` (AETR order by default) and button index 4 is the arm/deadman
+# switch. The indices below therefore refer to *Joy* axis/button positions, not raw CRSF
+# channels. Verify on hardware (watch /joy while moving sticks) before trusting them.
+
+teleop_node:
+  ros__parameters:
+    axis_linear: 1        # Joy axis 1 == Elevator (right stick vertical, mode 2) -> forward/back
+    axis_angular: 0       # Joy axis 0 == Aileron  (right stick horizontal)       -> turn
+    scale_linear: 1.0     # m/s at full stick deflection
+    scale_angular: 2.0    # rad/s at full stick deflection
+    invert_linear: false
+    invert_angular: false
+    deadman_button: 4     # Joy button 4 == the ELRS arm switch (see rp1_elrs.yaml deadman_*)
+    joy_timeout_sec: 0.5  # zero Twist if /joy goes stale (elrs_node also fails RC safe upstream)

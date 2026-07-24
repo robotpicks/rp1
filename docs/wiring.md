@@ -49,6 +49,42 @@ ros2 topic echo /joy     # wiggle each stick / press each button, note the indic
 jstest /dev/input/js0
 ```
 
+## RC radio (ExpressLRS / CRSF) -- alternative to the Xbox pad
+
+An ExpressLRS receiver can drive the robot instead of the Xbox controller. `rp1_elrs`'s
+`elrs_node` reads the receiver's **CRSF** stream over a UART and republishes it as `/joy`, so the
+same `rp1_teleop` mapping/deadman applies (see `rp1_elrs/config/joy_elrs.yaml`). It also pushes
+battery telemetry (from `/wheel_feedback`) back over the link to the handset.
+
+Wiring / setup:
+
+- Put the receiver in **CRSF serial** mode (its default), *not* MAVLink mode (that's a separate,
+  not-yet-built Phase-2 path). Default baud is **420000**.
+- Connect the RX UART to the PC. Simplest is a 3V3 USB-UART adapter: adapter **RX <- RX TX pad**
+  (channels), adapter **TX -> RX RX pad** (telemetry back to the handset), plus GND and 5V.
+  On a Pi you can instead use a header UART (`/dev/ttyAMA0`) with the console disabled.
+- Set `serial_port` (default `/dev/ttyUSB0`) in `rp1_elrs/config/rp1_elrs.yaml` (or the
+  `elrs_node` override in `rp1_bringup/config/rp1_mvp.yaml`).
+- CRSF is a half-duplex protocol; on a proper full-duplex two-wire adapter hookup telemetry
+  writes are fine. On a true single-wire hookup, telemetry timing collisions are possible --
+  `elrs_node` writes telemetry on a simple timer and does not yet arbitrate RX telemetry slots.
+
+Verify the channel/switch mapping before trusting the defaults in `rp1_elrs/config/rp1_elrs.yaml`
+(`axis_channels`, `deadman_channel`) -- they assume AETR channel order and a 2-position arm
+switch, which is TX-dependent:
+
+```bash
+ros2 launch rp1_elrs elrs_teleop.launch.py    # elrs_node + rp1_teleop, no joy_node
+# then watch /joy (small rclpy subscriber preferred; see CLAUDE.md on echo flakiness) and move
+# each stick / flip the arm switch -- confirm axes move and button 4 toggles with the switch.
+```
+
+To exercise the parser without a receiver, make a virtual serial pair
+(`socat -d -d pty,raw,echo=0 pty,raw,echo=0`), point `serial_port` at one pty, and write canned
+`RC_CHANNELS_PACKED` bytes into the other. Or run `elrs_node` with `require_serial:=false` to
+dry-run the telemetry side (frames are logged, no port opened) -- the analogue of the DroneCAN
+bridge's `require_can:=false`.
+
 ## Testing without hardware
 
 Two levels, from least to most CAN-realistic:

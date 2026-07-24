@@ -13,10 +13,16 @@ decisions.
 Communication architecture (PC → robot):
 
 ```
-[Xbox Series X controller] --joy--> ROS2 (rp1_teleop -> /cmd_vel -> rp1_control -> /wheel_cmd)
+[Xbox Series X controller] --USB--> joy_node ---\
+[ExpressLRS radio] --CRSF/UART--> rp1_elrs ------>--joy--> ROS2 (rp1_teleop -> /cmd_vel ->
+        rp1_control -> /wheel_cmd)
         -> rp1_dronecan_bridge (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
         -> VESC #1-4 (CAN mode: VESC+UAVCAN) -> motors
 ```
+
+Two interchangeable RC inputs feed the same `/joy` topic: the Xbox pad via `joy_node`, or an
+ExpressLRS radio via `rp1_elrs` (CRSF over UART). Pick one per bringup (`rp1_mvp.launch.py` vs
+`rp1_mvp_elrs.launch.py`) -- don't run both at once.
 
 - **DroneCAN is the runtime transport** from the PC to the robot (via `rp1_dronecan_bridge`).
 - **There is no separate bridge MCU.** VESC firmware has a built-in UAVCAN/DroneCAN CAN mode,
@@ -29,6 +35,13 @@ Communication architecture (PC → robot):
 - `rp1_dronecan_bridge` can run today in `require_can:=false` dry-run mode (logs intended
   frames instead of opening a CAN device), and there are two ways to run the whole pipeline
   with zero hardware — see "Simulation" below.
+- `rp1_elrs` is an **optional alternative RC input**: an ExpressLRS receiver's CRSF stream over
+  a UART, republished as `/joy` (so `rp1_teleop` is reused unchanged), with battery telemetry
+  pushed back to the handset. It has the same `require_serial:=false` dry-run escape hatch as the
+  bridge. Only standard CRSF is implemented; **MAVLink-over-ELRS is a deliberately-deferred
+  Phase-2 mode** — the wire protocol lives in `rp1_elrs/crsf.py` specifically so a MAVLink codec
+  can be added beside it (and a UDP-to-GCS sink is an independent later add). Don't build the
+  MAVLink path into the CRSF path.
 
 ## Build / run
 
@@ -86,7 +99,8 @@ Python deps for the DroneCAN bridge (`dronecan`, `python-can`) are not ROS/apt p
 were installed with `pip install --user --break-system-packages dronecan python-can` (see
 `ros2_ws/src/rp1_dronecan_bridge/requirements.txt`). This is a system-managed (PEP 668) Python
 environment, so plain `pip install` will refuse; passwordless `sudo` is not available in this
-sandbox.
+sandbox. `rp1_elrs` adds `pyserial` the same way (`ros2_ws/src/rp1_elrs/requirements.txt`); like
+`dronecan` in the bridge, it's imported lazily so the package still builds/dry-runs without it.
 
 ## Architecture
 
@@ -119,6 +133,16 @@ sandbox.
   Only publishes non-zero `Twist` while the deadman button is held; zeroes output if `/joy`
   goes stale. Axis/button numbering is the common Linux `joy_node` (xpad) convention but is
   **unverified against real hardware** — check with `ros2 topic echo /joy` or `jstest` first.
+- **`rp1_elrs`** (`elrs_node.py` + `crsf.py`) — optional ExpressLRS RC input. Reads the CRSF
+  stream from a serial port (`pyserial`, `serial_port`/`baud` params) via the ROS-independent
+  codec in `crsf.py`, unpacks `RC_CHANNELS_PACKED`, and publishes `sensor_msgs/Joy` (an
+  arm/switch channel mapped to Joy **button 4** so `rp1_teleop`'s `deadman_button: 4` gate works
+  unchanged — see `config/joy_elrs.yaml`). RC-loss failsafe publishes a neutral `Joy`.
+  Subscribes `/wheel_feedback` and writes CRSF `BATTERY_SENSOR` telemetry back to the handset.
+  Structure mirrors `bridge_node.py` (lazy transport import, `require_serial:=false` dry-run,
+  timer-pumped serial drain, keep-alive try/except). Has a pure-python codec test
+  (`test/test_crsf.py`) — the one unit test in the repo so far. **CRSF only; MAVLink is Phase-2**
+  (see the "What this is" note above).
 - **`rp1_control`** (`control_node.py`) — skid-steer kinematics only (no steering joints yet):
   `v_left = v - w*track_width/2`, `v_right = v + w*track_width/2`, both sides scaled by
   `max_wheel_speed` into the normalized WheelCommand range. If either side would exceed
@@ -138,9 +162,11 @@ sandbox.
   plus `nav_msgs/Odometry` + an `odom`→`base_link` TF. The rpm/voltage/current numbers are a
   plausible telemetry shape, not a physically accurate motor model. This is the primary way to
   validate the ROS2 graph itself (e.g. with rviz2) before any CAN hardware exists.
-- **`rp1_bringup`** — no code, just launch files + `config/rp1_mvp.yaml`. Two launch files:
-  `rp1_mvp.launch.py` (real hardware, ends in `rp1_dronecan_bridge`) and `rp1_mvp_sim.launch.py`
-  (identical joy/teleop/control stack, but ends in `rp1_sim` instead). Each node's parameters
+- **`rp1_bringup`** — no code, just launch files + `config/rp1_mvp.yaml`. Launch files include
+  `rp1_mvp.launch.py` (real hardware, ends in `rp1_dronecan_bridge`), `rp1_mvp_sim.launch.py`
+  (identical joy/teleop/control stack, but ends in `rp1_sim` instead), and
+  `rp1_mvp_elrs.launch.py` (like `rp1_mvp` but the `/joy` source is `rp1_elrs` instead of
+  `joy_node`). Each node's parameters
   are layered: that node's own package `config/*.yaml` defaults first, then `rp1_bringup`'s
   `rp1_mvp.yaml` on top for the handful of robot-specific values (track width, CAN interface,
   deadman button) — add new tunables to the owning package's default config, and only add an
