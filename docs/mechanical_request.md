@@ -1,0 +1,406 @@
+---
+title: "rp1 — Geometry & Mass Properties Request"
+subtitle: "Request to Mechanical Design / Запрос в отдел механического проектирования"
+---
+
+<!--
+Rebuild mechanical_request.pdf (needs pandoc + weasyprint):
+
+  cd rp1/docs
+  pandoc mechanical_request.md -f markdown -t html5 --standalone \
+      --css=mechanical_request.css -o /tmp/mechanical_request.html
+  weasyprint /tmp/mechanical_request.html mechanical_request.pdf
+
+The CSS must be reachable from the HTML, so pass an absolute path if building elsewhere.
+-->
+
+::: {.docmeta}
+| | |
+|---|---|
+| **Document** | rp1 — Geometry & Mass Properties Request |
+| **Revision** | A (draft) |
+| **Date** | 2026-07-26 |
+| **From** | Nir Mor — Software / ROS 2 (nir@nadirwave.com) |
+| **To** | Mechanical Design |
+| **Response format** | This document with §3–§4 tables filled in, plus the files listed in §2 |
+:::
+
+# EN — Geometry & Mass Properties Request
+
+## 0. Purpose
+
+The rp1 software stack (ROS 2) currently has **no physical description of the robot**. The
+kinematics, odometry and simulation run on placeholder numbers (track width 0.5 m, wheelbase
+0.5 m, wheel radius 0.1 m) and the URDF is a two-joint skeleton with every joint at the origin.
+
+To replace these with real values we need the items below. This is **not** a request for "the
+CAD" — it is a request for a specific, versioned set of numbers, frame definitions and export
+files. Please return this document with §3 and §4 filled in.
+
+**Wheel naming used throughout** (fixed by the software interface, please reuse it):
+
+| Index | Name | Abbrev. |
+|---|---|---|
+| 0 | Front Left | FL |
+| 1 | Front Right | FR |
+| 2 | Rear Left | RL |
+| 3 | Rear Right | RR |
+
+## 1. Coordinate frame and conventions — please confirm in writing
+
+These must be agreed **before** any numbers are exchanged; a mismatch here invalidates every
+value in §3.
+
+| ☐ | Item | Requested convention |
+|:-:|:------------------------|:--------------------------------------------------|
+| ☐ | Units | Length in **metres**, angles in **radians**, mass in **kg** |
+| ☐ | Handedness | **Right-handed** coordinate system |
+| ☐ | Axis convention | **X forward, Y left, Z up** (ROS REP-103) |
+| ☐ | `base_link` origin | Proposed: ground projection of the geometric centre of the four steering axes |
+| ☐ | `base_link` tie-in | Offset from `base_link` to a **physical feature measurable on the built frame** (e.g. front face of the chassis rail, centreline of a specific bore) — state which feature |
+| ☐ | Assembly datums | Which faces/features are the primary, secondary and tertiary datums |
+| ☐ | Zero pose — steering | Steering angle 0 = wheel plane aligned with **+X**; positive rotation **counter-clockwise about +Z** (viewed from above) |
+| ☐ | Zero pose — drive | Positive wheel rotation = robot moves **forward** |
+| ☐ | Export pose | All geometry exported with the robot in the zero pose defined above |
+
+> CAD packages commonly default to millimetres and Y-up. Please state the conversion actually
+> applied to the exported files rather than leaving it implied.
+
+## 2. Files requested
+
+| # | Deliverable | Format | Notes |
+|---|---|---|---|
+| 2.1 | Full assembly, as-designed | **STEP AP242** (AP214 acceptable) | Master geometry, in the zero pose of §1 |
+| 2.2 | Per-link visual meshes | Binary **STL** or **Collada `.dae`**, one file per link | Decimated (≈10k–100k triangles total), in metres, each file's origin at that link's joint |
+| 2.3 | Per-link collision geometry | Primitives (box / cylinder / sphere) or convex hulls | Must be **separate** from 2.2 — the detailed mesh is not usable for collision checking |
+| 2.4 | Dimensioned drawings | **PDF** | Top, side and front views with datums shown |
+| 2.5 | Mass properties | CSV or table | Per link: mass, centre of mass, 3×3 inertia tensor **about the CoM**, and the frame it is expressed in |
+| 2.6 | Parameter table | This document's §3–§4, or CSV/YAML | Versioned together with the CAD revision |
+
+If the CAD system in use has a URDF exporter (SolidWorks `sw_urdf_exporter`, Onshape
+`onshape-to-robot`, Fusion 360), please run it and supply the output **in addition to** 2.6.
+Exporter output still needs to be checked against the parameter table, so the table is not
+optional.
+
+## 3. Geometric parameters
+
+Please fill in **Value**, **Tol.** (tolerance) and **Source** (`CAD` = as-designed,
+`MEAS` = measured on built hardware).
+
+### 3.1 Wheel layout
+
+Position of each **steering axis** in `base_link`. Per-corner values are requested rather than a
+single track/wheelbase pair, so that a non-rectangular or asymmetric layout is captured correctly.
+
+| Corner | x [m] | y [m] | z [m] | Tol. | Source |
+|---|---|---|---|---|---|
+| FL | | | | | |
+| FR | | | | | |
+| RL | | | | | |
+| RR | | | | | |
+
+| # | Parameter | Unit | Value | Tol. | Source |
+|---|---|---|---|---|---|
+| 3.1.1 | Front track width (between wheel **contact patch** centrelines) | m | | | |
+| 3.1.2 | Rear track width (between wheel **contact patch** centrelines) | m | | | |
+| 3.1.3 | Wheelbase (longitudinal distance, front to rear steering axis) | m | | | |
+
+> Track width must be measured between contact patch centrelines, **not** between rim faces or
+> hub faces.
+
+### 3.2 Steering axis geometry (per corner)
+
+This group is frequently omitted and directly affects both the swerve kinematics and the
+standstill steering torque on soil.
+
+| Corner | Scrub radius / lateral offset, axis → contact patch centre [m] | Trail / longitudinal offset [m] | Caster angle [rad] | Camber angle [rad] |
+|---|---|---|---|---|
+| FL | | | | |
+| FR | | | | |
+| RL | | | | |
+| RR | | | | |
+
+☐ Confirm if all four corners are identical — if so, one row plus a note is sufficient.
+
+### 3.3 Wheels and tyres
+
+| # | Parameter | Unit | Value | Tol. | Source |
+|---|---|---|---|---|---|
+| 3.3.1 | Unloaded wheel radius | m | | | |
+| 3.3.2 | Loaded rolling radius at nominal payload | m | | | |
+| 3.3.3 | Tyre pressure at which 3.3.2 applies | bar | | | |
+| 3.3.4 | Tyre section width | m | | | |
+| 3.3.5 | Contact patch length × width at nominal load | m × m | | | |
+| 3.3.6 | Tread type / part number | — | | | |
+
+### 3.4 Steering joints and drivetrain
+
+| # | Parameter | Unit | Value | Tol. | Source |
+|---|---|---|---|---|---|
+| 3.4.1 | Steering joint: true continuous 360° rotation? (Y/N) | — | | | |
+| 3.4.2 | If **N**: steering joint limits (min, max) | rad | | | |
+| 3.4.3 | If **N**: what imposes the limit (cable routing / mechanical stop / other) | — | | | |
+| 3.4.4 | Steering reduction ratio, actuator → steering axis | :1 | | | |
+| 3.4.5 | Drive reduction ratio, motor → wheel | :1 | | | |
+| 3.4.6 | Backlash referred to the wheel (drive) | rad | | | |
+| 3.4.7 | Backlash referred to the steering axis | rad | | | |
+| 3.4.8 | Max steering rate the mechanism tolerates | rad/s | | | |
+| 3.4.9 | Design max wheel speed | m/s | | | |
+| 3.4.10 | Required wheel torque (continuous / peak) | N·m | | | |
+| 3.4.11 | Required steering torque at standstill on soil | N·m | | | |
+
+> The URDF currently declares the steering joints as `continuous`. Item 3.4.1 decides whether that
+> stays; if the joints are limited, the software must add wrap handling and limit enforcement.
+
+### 3.5 Envelope, mass and operating limits
+
+| # | Parameter | Unit | Value | Tol. | Source |
+|---|---|---|---|---|---|
+| 3.5.1 | Overall length × width × height | m | | | |
+| 3.5.2 | Minimum ground clearance, and where it occurs | m | | | |
+| 3.5.3 | Approach angle / departure angle | rad | | | |
+| 3.5.4 | Total mass (dry, no payload) | kg | | | |
+| 3.5.5 | Static load per corner (FL / FR / RL / RR) | kg | | | |
+| 3.5.6 | Centre of mass position in `base_link` (x, y, z) | m | | | |
+| 3.5.7 | Max payload mass | kg | | | |
+| 3.5.8 | Payload mounting interface pose in `base_link` | m, rad | | | |
+| 3.5.9 | Rated max slope (drive) / static tip-over angle | rad | | | |
+| 3.5.10 | Target row spacing the robot must straddle or pass | m | | | |
+| 3.5.11 | Max crop canopy height the robot must pass under | m | | | |
+
+## 4. Sensor and mount frames
+
+Requested **now**, even though sensor selection is not final — the mounting interfaces need to be
+reserved in the design, and the poses feed the ROS 2 transform tree.
+
+| Mount | x [m] | y [m] | z [m] | roll [rad] | pitch [rad] | yaw [rad] | Bolt pattern |
+|---|---|---|---|---|---|---|---|
+| IMU | | | | | | | |
+| GNSS antenna (**phase centre**) | | | | | | | |
+| Forward camera / lidar | | | | | | | |
+| Rear camera / lidar | | | | | | | |
+| Spare / payload plate | | | | | | | |
+
+☐ **IMU axis orientation** relative to `base_link` stated explicitly (not only the mount pose).
+An IMU mounted rotated or inverted is the single most common source of sign errors in the
+control loop.
+
+## 5. Tolerances, revisions and process
+
+| ☐ | Item |
+|:-:|:-----------------------------------------------------------------------------|
+| ☐ | Every value in §3–§4 marked `CAD` (as-designed) or `MEAS` (measured on hardware) |
+| ☐ | Tolerance given for each value, or a blanket tolerance stated for a group |
+| ☐ | The parameter table is issued **with each CAD revision**, carrying that revision's ID |
+| ☐ | Software is notified when **any** §3 value changes, including "small" changes |
+
+Rationale for the last point: these values are duplicated across three ROS 2 configuration files
+and the robot description. A silent change breaks the correspondence between simulation and
+hardware in a way that is not detected by any automated test.
+
+Note that wheel-odometry calibration on the built robot will refine the effective track width and
+rolling radius. Those calibrated values do **not** replace the CAD values — both are kept, which
+is why the `CAD` / `MEAS` marking matters.
+
+## 6. What this unblocks
+
+| Deliverable | Consumer in the software stack |
+|---|---|
+| §3.1 track width, wheelbase | `rp1_control` kinematics; `rp1_sim` and `swerve_sim` dynamics |
+| §3.3 rolling radius | Wheel-speed ↔ ground-speed conversion, odometry |
+| §3.2 steering axis geometry | Swerve inverse kinematics, steering torque budget |
+| §3.4 ratios, limits | Encoder counts → radians/metres; joint limits in the URDF |
+| §2.1–§2.5, §4 | A real robot description package: visualisation, transform tree, collision checking |
+
+<div class="pagebreak"></div>
+
+# RU — Запрос геометрических данных и массово-инерционных характеристик
+
+## 0. Цель
+
+В программном стеке rp1 (ROS 2) в настоящий момент **отсутствует физическое описание робота**.
+Кинематика, одометрия и симуляция работают на условных значениях (колея 0,5 м, колёсная база
+0,5 м, радиус колеса 0,1 м), а URDF представляет собой заготовку из двух шарниров, все из
+которых расположены в начале координат.
+
+Чтобы заменить эти значения реальными, требуются перечисленные ниже данные. Это **не** запрос
+«прислать CAD» — это запрос на конкретный, версионируемый набор чисел, определений систем
+координат и экспортных файлов. Просьба вернуть настоящий документ с заполненными §3 и §4.
+
+**Обозначения колёс, используемые далее** (заданы программным интерфейсом, просьба использовать те же):
+
+| Индекс | Наименование | Сокр. |
+|---|---|---|
+| 0 | Переднее левое | FL |
+| 1 | Переднее правое | FR |
+| 2 | Заднее левое | RL |
+| 3 | Заднее правое | RR |
+
+## 1. Система координат и соглашения — просьба подтвердить письменно
+
+Эти пункты должны быть согласованы **до** обмена какими-либо числами; расхождение здесь
+обесценивает все значения из §3.
+
+| ☐ | Пункт | Запрашиваемое соглашение |
+|:-:|:------------------------|:--------------------------------------------------|
+| ☐ | Единицы измерения | Длина — **метры**, углы — **радианы**, масса — **кг** |
+| ☐ | Ориентация системы | **Правая** система координат |
+| ☐ | Направление осей | **X — вперёд, Y — влево, Z — вверх** (ROS REP-103) |
+| ☐ | Начало координат `base_link` | Предлагается: проекция на грунт геометрического центра четырёх осей поворота колёс |
+| ☐ | Привязка `base_link` | Смещение от `base_link` до **физического элемента, измеримого на изготовленной раме** (например, передняя плоскость лонжерона рамы, ось конкретного отверстия) — указать, какого именно |
+| ☐ | Базы сборки | Какие поверхности/элементы являются основной, вспомогательной и третьей базами |
+| ☐ | Нулевое положение — поворот | Угол поворота 0 = плоскость колеса совпадает с **+X**; положительное вращение — **против часовой стрелки вокруг +Z** (вид сверху) |
+| ☐ | Нулевое положение — тяга | Положительное вращение колеса = движение робота **вперёд** |
+| ☐ | Положение при экспорте | Вся геометрия экспортируется в нулевом положении, определённом выше |
+
+> В CAD-системах по умолчанию часто приняты миллиметры и ось Y вверх. Просьба явно указать
+> пересчёт, фактически применённый к экспортируемым файлам, а не подразумевать его.
+
+## 2. Запрашиваемые файлы
+
+| № | Результат | Формат | Примечания |
+|---|---|---|---|
+| 2.1 | Полная сборка по конструкторской документации | **STEP AP242** (допустим AP214) | Эталонная геометрия, в нулевом положении по §1 |
+| 2.2 | Полигональные модели (визуальные) по звеньям | Двоичный **STL** или **Collada `.dae`**, по одному файлу на звено | Упрощённые (≈10–100 тыс. треугольников суммарно), в метрах, начало координат каждого файла — в шарнире данного звена |
+| 2.3 | Геометрия для расчёта столкновений по звеньям | Примитивы (параллелепипед / цилиндр / сфера) или выпуклые оболочки | Должна быть **отдельной** от 2.2 — детализированная модель для проверки столкновений непригодна |
+| 2.4 | Чертежи с размерами | **PDF** | Виды сверху, сбоку и спереди с указанием баз |
+| 2.5 | Массово-инерционные характеристики | CSV или таблица | По каждому звену: масса, центр масс, тензор инерции 3×3 **относительно центра масс**, и система координат, в которой он задан |
+| 2.6 | Таблица параметров | §3–§4 настоящего документа либо CSV/YAML | Версионируется совместно с ревизией CAD |
+
+Если используемая CAD-система имеет экспортёр URDF (SolidWorks `sw_urdf_exporter`, Onshape
+`onshape-to-robot`, Fusion 360), просьба запустить его и предоставить результат **в дополнение**
+к п. 2.6. Результат работы экспортёра всё равно подлежит сверке с таблицей параметров, поэтому
+таблица обязательна.
+
+## 3. Геометрические параметры
+
+Просьба заполнить графы **Значение**, **Доп.** (допуск) и **Источник** (`CAD` — по
+конструкторской документации, `MEAS` — измерено на изготовленном изделии).
+
+### 3.1 Расположение колёс
+
+Положение каждой **оси поворота колеса** в системе `base_link`. Запрашиваются значения по каждому
+углу машины, а не одна пара «колея/база», чтобы корректно описать несимметричную или
+непрямоугольную компоновку.
+
+| Угол | x [м] | y [м] | z [м] | Доп. | Источник |
+|---|---|---|---|---|---|
+| FL | | | | | |
+| FR | | | | | |
+| RL | | | | | |
+| RR | | | | | |
+
+| № | Параметр | Ед. | Значение | Доп. | Источник |
+|---|---|---|---|---|---|
+| 3.1.1 | Передняя колея (между центрами **пятен контакта**) | м | | | |
+| 3.1.2 | Задняя колея (между центрами **пятен контакта**) | м | | | |
+| 3.1.3 | Колёсная база (продольное расстояние между осями поворота) | м | | | |
+
+> Колею следует измерять между центрами пятен контакта, а **не** между плоскостями дисков или
+> ступиц.
+
+### 3.2 Геометрия оси поворота (по каждому углу машины)
+
+Эта группа параметров часто упускается и напрямую влияет как на кинематику поворотного привода,
+так и на момент поворота колеса на месте по грунту.
+
+| Угол | Плечо обкатки / поперечное смещение, ось → центр пятна контакта [м] | Продольное смещение (вылет) [м] | Угол продольного наклона оси (кастер) [рад] | Угол развала [рад] |
+|---|---|---|---|---|
+| FL | | | | |
+| FR | | | | |
+| RL | | | | |
+| RR | | | | |
+
+☐ Подтвердить, идентичны ли все четыре угла машины — если да, достаточно одной строки с примечанием.
+
+### 3.3 Колёса и шины
+
+| № | Параметр | Ед. | Значение | Доп. | Источник |
+|---|---|---|---|---|---|
+| 3.3.1 | Свободный радиус колеса (без нагрузки) | м | | | |
+| 3.3.2 | Радиус качения под номинальной нагрузкой | м | | | |
+| 3.3.3 | Давление в шине, при котором действует п. 3.3.2 | бар | | | |
+| 3.3.4 | Ширина профиля шины | м | | | |
+| 3.3.5 | Пятно контакта, длина × ширина при номинальной нагрузке | м × м | | | |
+| 3.3.6 | Тип протектора / обозначение шины | — | | | |
+
+### 3.4 Механизмы поворота и трансмиссия
+
+| № | Параметр | Ед. | Значение | Доп. | Источник |
+|---|---|---|---|---|---|
+| 3.4.1 | Механизм поворота: непрерывное вращение на 360°? (Да/Нет) | — | | | |
+| 3.4.2 | Если **Нет**: пределы поворота (мин., макс.) | рад | | | |
+| 3.4.3 | Если **Нет**: чем ограничен ход (прокладка кабеля / механический упор / иное) | — | | | |
+| 3.4.4 | Передаточное отношение привода поворота, привод → ось поворота | :1 | | | |
+| 3.4.5 | Передаточное отношение тягового привода, двигатель → колесо | :1 | | | |
+| 3.4.6 | Люфт, приведённый к колесу (тяга) | рад | | | |
+| 3.4.7 | Люфт, приведённый к оси поворота | рад | | | |
+| 3.4.8 | Максимальная скорость поворота, допускаемая механизмом | рад/с | | | |
+| 3.4.9 | Расчётная максимальная скорость колеса | м/с | | | |
+| 3.4.10 | Требуемый момент на колесе (длительный / пиковый) | Н·м | | | |
+| 3.4.11 | Требуемый момент поворота колеса на месте по грунту | Н·м | | | |
+
+> В URDF механизмы поворота в настоящий момент объявлены как `continuous` (без ограничений).
+> Пункт 3.4.1 определяет, останется ли так; при наличии ограничений в ПО потребуется добавить
+> обработку перехода через ±π и контроль пределов.
+
+### 3.5 Габариты, масса и эксплуатационные ограничения
+
+| № | Параметр | Ед. | Значение | Доп. | Источник |
+|---|---|---|---|---|---|
+| 3.5.1 | Габариты: длина × ширина × высота | м | | | |
+| 3.5.2 | Минимальный дорожный просвет и место его расположения | м | | | |
+| 3.5.3 | Угол въезда / угол съезда | рад | | | |
+| 3.5.4 | Полная масса (снаряжённая, без полезной нагрузки) | кг | | | |
+| 3.5.5 | Статическая нагрузка по углам (FL / FR / RL / RR) | кг | | | |
+| 3.5.6 | Положение центра масс в `base_link` (x, y, z) | м | | | |
+| 3.5.7 | Максимальная полезная нагрузка | кг | | | |
+| 3.5.8 | Положение посадочного места полезной нагрузки в `base_link` | м, рад | | | |
+| 3.5.9 | Максимальный преодолеваемый уклон / статический угол опрокидывания | рад | | | |
+| 3.5.10 | Ширина междурядья, которое робот должен проходить или обхватывать | м | | | |
+| 3.5.11 | Максимальная высота растительного полога для прохода под ним | м | | | |
+
+## 4. Системы координат датчиков и посадочных мест
+
+Запрашиваются **уже сейчас**, несмотря на то что состав датчиков не окончателен: посадочные места
+необходимо зарезервировать в конструкции, а их положения используются для построения дерева
+преобразований (TF) в ROS 2.
+
+| Посадочное место | x [м] | y [м] | z [м] | крен [рад] | тангаж [рад] | рыскание [рад] | Присоединительные размеры |
+|---|---|---|---|---|---|---|---|
+| ИНС/IMU | | | | | | | |
+| Антенна ГНСС (**фазовый центр**) | | | | | | | |
+| Передняя камера / лидар | | | | | | | |
+| Задняя камера / лидар | | | | | | | |
+| Резервная плита / плита полезной нагрузки | | | | | | | |
+
+☐ **Ориентация осей IMU** относительно `base_link` указывается явно (не только положение
+посадочного места). Повёрнутая или перевёрнутая установка IMU — самая частая причина ошибок в
+знаках в контуре управления.
+
+## 5. Допуски, ревизии и порядок работы
+
+| ☐ | Пункт |
+|:-:|:-----------------------------------------------------------------------------|
+| ☐ | Каждое значение в §3–§4 помечено как `CAD` (по документации) или `MEAS` (измерено на изделии) |
+| ☐ | Для каждого значения указан допуск либо задан общий допуск на группу |
+| ☐ | Таблица параметров выпускается **с каждой ревизией CAD** и содержит идентификатор этой ревизии |
+| ☐ | О **любом** изменении значений §3 сообщается разработчикам ПО, включая «незначительные» изменения |
+
+Обоснование последнего пункта: эти значения продублированы в трёх конфигурационных файлах ROS 2
+и в описании робота. Необъявленное изменение нарушает соответствие между симуляцией и реальной
+машиной так, что ни один автоматический тест этого не выявляет.
+
+Следует учитывать, что калибровка колёсной одометрии на изготовленной машине уточнит эффективную
+колею и радиус качения. Эти калиброванные значения **не заменяют** значения из CAD — хранятся оба
+набора, именно поэтому важна пометка `CAD` / `MEAS`.
+
+## 6. Что это разблокирует
+
+| Данные | Потребитель в программном стеке |
+|---|---|
+| §3.1 колея, колёсная база | Кинематика `rp1_control`; динамика `rp1_sim` и `swerve_sim` |
+| §3.3 радиус качения | Пересчёт скорости колеса ↔ скорости движения, одометрия |
+| §3.2 геометрия оси поворота | Обратная кинематика поворотного привода, расчёт моментов поворота |
+| §3.4 передаточные отношения, пределы | Отсчёты энкодера → радианы/метры; пределы шарниров в URDF |
+| §2.1–§2.5, §4 | Полноценный пакет описания робота: визуализация, дерево преобразований, расчёт столкновений |

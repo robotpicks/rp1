@@ -1,0 +1,132 @@
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm 16mm;
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: "Liberation Sans", "DejaVu Sans", sans-serif;
+    font-size: 8pt;
+    color: #777;
+  }
+  @bottom-left {
+    content: "rp1 — Geometry & Mass Properties Request — Rev A";
+    font-family: "Liberation Sans", "DejaVu Sans", sans-serif;
+    font-size: 7.5pt;
+    color: #999;
+  }
+}
+
+html {
+  font-family: "Liberation Sans", "DejaVu Sans", sans-serif;
+  font-size: 9.5pt;
+  line-height: 1.45;
+  color: #1a1a1a;
+}
+
+body { margin: 0; }
+
+h1.title {
+  font-size: 20pt;
+  line-height: 1.2;
+  margin: 0 0 2mm 0;
+  color: #12283c;
+}
+
+p.subtitle {
+  font-size: 11pt;
+  color: #4a6376;
+  margin: 0 0 6mm 0;
+  padding-bottom: 4mm;
+  border-bottom: 2px solid #12283c;
+}
+
+h1 {
+  font-size: 15pt;
+  color: #12283c;
+  margin: 8mm 0 3mm 0;
+  padding-bottom: 1.5mm;
+  border-bottom: 1.5px solid #12283c;
+  string-set: chapter content();
+}
+
+h2 {
+  font-size: 11.5pt;
+  color: #12283c;
+  margin: 6mm 0 2mm 0;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 10pt;
+  color: #2c4a63;
+  margin: 4.5mm 0 1.5mm 0;
+  page-break-after: avoid;
+}
+
+p { margin: 0 0 2.5mm 0; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 2mm 0 4mm 0;
+  font-size: 8.3pt;
+}
+
+/* Long tables may split across pages, but never mid-row, and the header repeats. */
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+
+th {
+  background: #12283c;
+  color: #fff;
+  text-align: left;
+  font-weight: 600;
+  padding: 1.4mm 1.8mm;
+  border: 0.4pt solid #12283c;
+  vertical-align: bottom;
+}
+
+td {
+  padding: 1.4mm 1.8mm;
+  border: 0.4pt solid #b9c6d0;
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) td { background: #f2f5f8; }
+
+/* fill-in cells: empty table cells get a subtle writable look */
+td:empty { background: #fffdf0 !important; min-width: 14mm; }
+
+blockquote {
+  margin: 2mm 0 4mm 0;
+  padding: 2mm 3mm;
+  border-left: 2.5pt solid #c8952a;
+  background: #fdf8ec;
+  page-break-inside: avoid;
+}
+
+blockquote p { margin: 0; }
+
+code {
+  font-family: "Liberation Mono", "DejaVu Sans Mono", monospace;
+  font-size: 0.9em;
+  background: #eef2f5;
+  padding: 0.3mm 0.8mm;
+  border-radius: 1px;
+}
+
+strong { color: #12283c; }
+
+.docmeta table {
+  width: 100%;
+  font-size: 8.6pt;
+  margin-bottom: 6mm;
+}
+.docmeta th { display: none; }
+.docmeta table tr:first-child { display: none; }
+.docmeta td:first-child { width: 32mm; background: #eef2f5; font-weight: 600; }
+.docmeta td:empty { background: #eef2f5 !important; }
+
+.pagebreak { page-break-after: always; }
+
+ul, ol { margin: 0 0 3mm 0; padding-left: 6mm; }
+li { margin-bottom: 1mm; }
