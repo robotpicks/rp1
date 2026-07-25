@@ -18,10 +18,19 @@ sudo ip link set up vcan0
 
 ## Run: drive wheels (`rp1_dronecan_bridge`)
 
+The whole thing is wrapped up as one command from the meta repo, which starts both sides, asserts
+the round trip, and tears down — this is what CI runs:
+
+```bash
+./robotpicks.sh smoke dronecan       # DRONECAN_IFACE=vcan0 by default
+```
+
+To drive it by hand instead:
+
 ```bash
 python3 simulation/sim_vesc_node.py --iface vcan0        # pretends to be the 4 VESCs
 
-source /opt/ros/kilted/setup.bash
+source /opt/ros/$ROS_DISTRO/setup.bash
 source ros2_ws/install/setup.bash
 ros2 run rp1_dronecan_bridge bridge_node --ros-args -p can_iface:=vcan0 -p require_can:=true
 ```
@@ -29,6 +38,11 @@ ros2 run rp1_dronecan_bridge bridge_node --ros-args -p can_iface:=vcan0 -p requi
 Then drive it like real hardware, e.g. publish to `/wheel_cmd` directly, or run
 `rp1_teleop`/`rp1_control` on top and feed it through `/cmd_vel`/`/joy`. `/wheel_feedback`
 should start showing plausible rpm/voltage/current once `sim_vesc_node.py` receives commands.
+
+`check_dronecan_loopback.py` is the assertion half, usable on its own against an already-running
+pair. It publishes a known `WheelCommand` and checks the rpm that comes back, then stops
+publishing and checks the bridge's command-timeout failsafe returns the wheels to zero — so it
+fails if telemetry never arrives, arrives at the wrong scale, or latches the last command.
 
 ## Run: steering actuators (`rp1_hardware_interface`)
 
