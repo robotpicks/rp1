@@ -1,30 +1,11 @@
-# ExpressLRS (CRSF) UART bridge defaults for rp1.
+# rp1 config for the ELRS telemetry adapter (wheel_feedback_to_battery).
 #
-# The receiver must be in *CRSF* serial mode (not MAVLink) at the baud below. Channel/switch
-# indices depend on your transmitter's model/mixer -- verify against the real link before
-# trusting them: run elrs_node, then inspect /joy (a small rclpy subscriber; per rp1/CLAUDE.md
-# avoid piping `ros2 topic echo` in this sandbox) while moving each stick/switch.
+# The generic RC/telemetry driver (elrs_driver, from the elrs_ros submodule: RC -> /joy,
+# /battery -> handset) is configured by that package's own config/elrs_driver.yaml plus the
+# robot-specific serial_port override in rp1_bringup/config/rp1_mvp.yaml. This file only holds
+# rp1's WheelFeedback -> BatteryState adapter.
 
-elrs_node:
+wheel_feedback_to_battery:
   ros__parameters:
-    serial_port: /dev/ttyUSB0   # USB-UART adapter (or e.g. /dev/ttyAMA0 on a Pi header UART)
-    baud: 420000                # ELRS CRSF default
-    require_serial: true        # false = dry-run (no port opened; telemetry frames logged)
-    link_mode: crsf             # 'crsf' only for now; 'mavlink' (over-ELRS) is a Phase-2 mode
-    poll_rate_hz: 200.0         # serial-drain / Joy-publish tick
-
-    # CRSF channel (0-based) feeding each Joy axis, in axis order. Default = AETR order
-    # (0=Aileron, 1=Elevator, 2=Throttle, 3=Rudder). joy_elrs.yaml then selects which of these
-    # Joy axes are linear/angular.
-    axis_channels: [0, 1, 2, 3]
-
-    # Arm/deadman switch: a CRSF switch channel exposed as a Joy button so rp1_teleop's
-    # deadman gate works unchanged. deadman_button_index=4 matches rp1_mvp.yaml's deadman_button.
-    deadman_channel: 4          # e.g. AUX1 (a 2-pos switch); check on your TX
-    deadman_button_index: 4
-    deadman_threshold: 0.5      # switch counts as held when its normalized value > this
-    rc_timeout_sec: 0.5         # publish a neutral Joy (deadman released) if RC goes stale
-
-    telemetry_rate_hz: 5.0      # BATTERY_SENSOR frames pushed back to the handset
-    battery_source: mean        # 'mean' of the 4 wheels' feedback, or a wheel index '0'..'3'
-    battery_remaining_pct: 0    # state-of-charge not estimated yet (0 = unknown)
+    battery_source: mean     # 'mean' of the 4 wheels that reported, or a wheel index '0'..'3'
+    publish_rate_hz: 5.0

@@ -19,12 +19,13 @@ setup(
     zip_safe=True,
     maintainer='uzi.mor',
     maintainer_email='uzi.mor@gmail.com',
-    description='ExpressLRS (CRSF over UART) RC input + handset telemetry for rp1.',
+    description='rp1 glue for the generic elrs_driver: WheelFeedback -> BatteryState telemetry '
+                'adapter + rp1 ELRS configs/launch.',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'elrs_node = rp1_elrs.elrs_node:main',
+            'wheel_feedback_to_battery = rp1_elrs.wheel_feedback_to_battery:main',
         ],
     },
 )

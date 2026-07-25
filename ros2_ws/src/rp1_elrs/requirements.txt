@@ -1,4 +1,0 @@
-# Not a ROS/apt package -- install with:
-#   pip install --user --break-system-packages pyserial
-# (same PEP 668 workaround as rp1_dronecan_bridge's dronecan/python-can; see rp1/CLAUDE.md)
-pyserial

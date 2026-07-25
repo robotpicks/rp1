@@ -1,9 +1,10 @@
-"""Standalone ELRS teleop test: elrs_node + rp1_teleop only, publishing /cmd_vel.
+"""Standalone ELRS teleop test: elrs_driver + rp1_teleop, publishing /cmd_vel.
 
-The ELRS analogue of rp1_teleop/launch/teleop.launch.py -- but there is no joy_node here;
-elrs_node is itself the /joy source (CRSF RC channels -> sensor_msgs/Joy). Useful for verifying
-the channel/switch mapping (`ros2 topic echo /cmd_vel`, or a small rclpy subscriber on /joy)
-before wiring in the rest of the rp1_bringup pipeline.
+The generic elrs_driver (elrs_ros submodule) is the /joy source (CRSF RC channels ->
+sensor_msgs/Joy); rp1_teleop maps it to /cmd_vel with the rp1 ELRS mapping (joy_elrs.yaml).
+Useful for verifying the channel/switch mapping (watch /joy, or `ros2 topic echo /cmd_vel`)
+before wiring in the rest of the pipeline. Telemetry back to the handset needs a /battery source
+(the wheel_feedback_to_battery adapter, present in the full rp1_mvp_elrs pipeline).
 """
 
 import os
@@ -15,15 +16,15 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     elrs_config = os.path.join(
-        get_package_share_directory('rp1_elrs'), 'config', 'rp1_elrs.yaml')
+        get_package_share_directory('elrs_driver'), 'config', 'elrs_driver.yaml')
     joy_elrs_config = os.path.join(
         get_package_share_directory('rp1_elrs'), 'config', 'joy_elrs.yaml')
 
     return LaunchDescription([
         Node(
-            package='rp1_elrs',
-            executable='elrs_node',
-            name='elrs_node',
+            package='elrs_driver',
+            executable='elrs_driver',
+            name='elrs_driver',
             parameters=[elrs_config],
             output='screen',
         ),

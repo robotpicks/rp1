@@ -3,7 +3,7 @@
 <package format="3">
   <name>rp1_elrs</name>
   <version>0.0.1</version>
-  <description>ExpressLRS (CRSF over UART) RC input + handset telemetry for rp1: CRSF RC channels -&gt; sensor_msgs/Joy (reusing rp1_teleop), WheelFeedback -&gt; CRSF battery telemetry.</description>
+  <description>rp1 glue for the generic elrs_driver (elrs_ros submodule): a WheelFeedback -&gt; sensor_msgs/BatteryState adapter so rp1 telemetry reaches the ELRS handset, plus rp1's ELRS configs and launch.</description>
   <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,6 +12,8 @@
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
   <depend>rp1_msgs</depend>
+  <exec_depend>elrs_driver</exec_depend>
+  <exec_depend>rp1_teleop</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>ament_index_python</exec_depend>
