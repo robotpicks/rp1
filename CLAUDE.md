@@ -108,15 +108,16 @@ them and think they look unnecessary:
   instead of 100ms. Only `spin(timeout=0)` is safe; both files busy-poll with `timeout=0` plus a
   short `sleep`/ROS2 timer instead of relying on a blocking nonzero timeout.
 
-Python deps for the DroneCAN bridge (`dronecan`, `python-can`) are not ROS/apt packages and are
-**not currently installed** — `bridge_node` therefore dies with `ModuleNotFoundError: dronecan`
-unless run with `require_can:=false`. Install with
-`pip install --user --break-system-packages dronecan python-can` (see
-`ros2_ws/src/rp1_dronecan_bridge/requirements.txt`). This is a system-managed (PEP 668) Python
-environment, so plain `pip install` will refuse; passwordless `sudo` is not available in this
-sandbox. `elrs_driver` needs `pyserial` the same way (`elrs_ros/elrs_driver/requirements.txt`,
-already installed); like `dronecan` in the bridge, it's imported lazily so the package still
-builds/dry-runs without it.
+Python deps are declared as rosdep keys in each `package.xml` and installed with
+`./robotpicks.sh deps` (rosdep) from the meta repo — don't hand-roll `pip install` lines, and
+don't add a dep without also declaring it in the manifest. `python3-can` and `python3-serial` are
+stock keys resolving to distro packages; `dronecan` is packaged nowhere and has no upstream key,
+so the meta repo's `rosdep/robotpicks.yaml` defines it and maps it to pip. That rule file needs
+registering under `/etc/ros/rosdep/sources.list.d/` once (root); `robotpicks.sh deps` prints the
+commands. This is a system-managed (PEP 668) Python environment, so a bare `pip install` refuses
+and passwordless `sudo` is not available in this sandbox. All three libs are imported lazily, so
+every package still builds and dry-runs (`require_can:=false` / `require_serial:=false`) without
+them.
 
 ## Architecture
 

@@ -1,2 +1,17 @@
+# Both libs are declared as rosdep keys in package.xml -- prefer installing them that way, so
+# the manifest stays the single source of truth:
+#
+#   ./robotpicks.sh deps        # (from the robotpicks meta repo) runs rosdep install
+#
+# python-can resolves to the distro package (python3-can). dronecan is packaged nowhere and has
+# no upstream rosdep key, so the meta repo's rosdep/robotpicks.yaml maps that one key to pip;
+# the rule file has to be registered once -- `robotpicks.sh deps` prints the commands.
+#
+# This file is the plain-pip fallback for a checkout without the meta repo. On a PEP 668
+# (externally-managed) system pip refuses to touch the system Python, hence the flag:
+#   pip install --user --break-system-packages -r requirements.txt
+#
+# Both are imported lazily, so the package still builds and dry-runs (require_can:=false)
+# without either of them.
 dronecan
 python-can

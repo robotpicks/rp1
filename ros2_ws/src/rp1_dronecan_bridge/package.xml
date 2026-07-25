@@ -7,10 +7,15 @@
   <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
   <license>Apache-2.0</license>
 
-  <buildtool_depend>ament_python</buildtool_depend>
-
   <depend>rclpy</depend>
   <depend>rp1_msgs</depend>
+
+  <!-- Transport libs, imported lazily so the package still builds and dry-runs
+       (require_can:=false) without them. python3-can is a stock rosdep key; dronecan has no
+       upstream key or distro package, so it comes from the repo-local rule in
+       rosdep/robotpicks.yaml, which resolves it via pip. -->
+  <exec_depend>python3-can</exec_depend>
+  <exec_depend>dronecan</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
