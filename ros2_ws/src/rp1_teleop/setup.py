@@ -21,7 +21,7 @@ setup(
     maintainer_email='uzi.mor@gmail.com',
     description='Xbox Series X controller teleop for rp1: joy -> /cmd_vel with a deadman switch.',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'teleop_node = rp1_teleop.teleop_node:main',

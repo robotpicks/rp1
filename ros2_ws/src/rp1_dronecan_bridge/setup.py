@@ -20,7 +20,7 @@ setup(
     maintainer_email='uzi.mor@gmail.com',
     description='ROS2 <-> DroneCAN bridge for rp1.',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'bridge_node = rp1_dronecan_bridge.bridge_node:main',

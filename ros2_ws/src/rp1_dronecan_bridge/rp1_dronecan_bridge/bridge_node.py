@@ -57,7 +57,7 @@ class BridgeNode(RosNode):
             self._dronecan_node = self._make_dronecan_node()
             self.create_timer(0.01, self._spin_dronecan)
         else:
-            self.get_logger().warn(
+            self.get_logger().warning(
                 'require_can=false: running in dry-run mode, no CAN device opened')
 
         rate_hz = self.get_parameter('command_rate_hz').value

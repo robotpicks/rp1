@@ -22,7 +22,7 @@ setup(
     description='rp1 glue for the generic elrs_driver: WheelFeedback -> BatteryState telemetry '
                 'adapter + rp1 ELRS configs/launch.',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'wheel_feedback_to_battery = rp1_elrs.wheel_feedback_to_battery:main',

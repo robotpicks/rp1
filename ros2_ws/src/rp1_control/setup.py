@@ -20,7 +20,7 @@ setup(
     maintainer_email='uzi.mor@gmail.com',
     description='rp1 MVP kinematics: /cmd_vel -> per-wheel skid-steer WheelCommand.',
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'control_node = rp1_control.control_node:main',

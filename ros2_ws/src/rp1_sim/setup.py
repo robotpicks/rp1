@@ -24,7 +24,7 @@ setup(
         'so the teleop/control graph can be exercised with zero CAN hardware.'
     ),
     license='Apache-2.0',
-    tests_require=['pytest'],
+    extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
             'sim_bridge_node = rp1_sim.sim_bridge_node:main',
