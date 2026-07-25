@@ -10,6 +10,7 @@ serial, failsafe, telemetry framing) is the generic elrs_ros package. See rp1/CL
 """
 
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rp1_msgs.msg import WheelFeedback
 from sensor_msgs.msg import BatteryState
@@ -74,9 +75,25 @@ def main(args=None):
     node = WheelFeedbackToBattery()
     try:
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        # Ctrl-C, or a launch/systemd supervisor sending SIGTERM: rclpy's signal handler
+        # shuts the context down and spin() reports it as ExternalShutdownException.
+        # That is a normal stop, so swallow it and exit 0 -- otherwise every clean
+        # shutdown looks like a crash to whatever is supervising the node.
+        pass
+    except RuntimeError:
+        # The same stop, different symptom: if the signal lands while the executor is building
+        # its wait set, rclpy invalidates the context underneath itself and raises RCLError
+        # ("the given context is not valid") instead. It is a RuntimeError subclass that only
+        # exists in a private module, so match the base and gate on the context actually being
+        # gone -- a RuntimeError with a live context is a real fault and must propagate.
+        if rclpy.ok():
+            raise
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        # try_shutdown(), not shutdown(): the context is already down in the
+        # ExternalShutdownException case and shutdown() would raise on top of it.
+        rclpy.try_shutdown()
 
 
 if __name__ == '__main__':
