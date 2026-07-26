@@ -18,6 +18,38 @@ sudo ip link add dev vcan0 type vcan
 sudo ip link set up vcan0
 ```
 
+This doesn't survive a reboot -- the interface is gone until the three commands above are run
+again. For a development machine that repeatedly needs `smoke dronecan` or the simulator, make it
+permanent with a systemd oneshot unit instead (stack-agnostic -- works regardless of
+NetworkManager/networkd/netplan):
+
+```bash
+echo vcan | sudo tee /etc/modules-load.d/vcan.conf
+
+sudo tee /etc/systemd/system/vcan0.service <<'EOF'
+[Unit]
+Description=Bring up virtual CAN interface vcan0
+After=network-pre.target
+Before=network.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ip link add dev vcan0 type vcan
+ExecStart=/sbin/ip link set up vcan0
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now vcan0.service
+```
+
+CI doesn't need this -- `.github/workflows/rp1.yml`'s `dronecan-vcan` job creates `vcan0` fresh on
+each ephemeral runner.
+
 ## Run: drive wheels (`vesc_dronecan_driver`)
 
 The whole thing is wrapped up as one command from the meta repo, which starts both sides, asserts
