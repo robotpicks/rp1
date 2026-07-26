@@ -4,7 +4,7 @@
 # The old control_node and bridge_node blocks are gone with those packages. Their settings moved:
 #   track width / wheel radius  -> rp1_controllers.yaml (diff_drive_controller's own parameters)
 #   cmd_vel timeout             -> rp1_controllers.yaml (diff_drive_controller cmd_vel_timeout)
-#   can_iface, node_id          -> rp1_hardware_interface/urdf/rp1_drive.urdf
+#   can_iface, node_id          -> rp1_description/urdf/rp1_drive.urdf
 #
 # That last one is a real constraint rather than a preference: ros2_control reads hardware
 # parameters from the <hardware> block of the robot description only, so a CAN interface name

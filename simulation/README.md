@@ -3,9 +3,9 @@
 `rp1_mvp.launch.py use_mock:=true` is the primary way to check the ROS2 architecture with zero
 hardware -- see the top-level README and `docs/wiring.md`. It stops at the hardware boundary
 though: `mock_components/GenericSystem` loops commands back to states, so nothing below
-`rp1_hardware_interface` is exercised at all.
+`vesc_dronecan_driver` is exercised at all.
 
-This directory is that missing step: it runs the **real** `rp1_hardware_interface` -- actual
+This directory is that missing step: it runs the **real** `vesc_dronecan_driver` -- actual
 DroneCAN framing over a CAN bus, both drive wheels and steering actuators -- against software
 stand-ins for the VESCs, using a Linux virtual CAN interface instead of a physical adapter.
 
@@ -18,7 +18,7 @@ sudo ip link add dev vcan0 type vcan
 sudo ip link set up vcan0
 ```
 
-## Run: drive wheels (`rp1_hardware_interface`)
+## Run: drive wheels (`vesc_dronecan_driver`)
 
 The whole thing is wrapped up as one command from the meta repo, which starts both sides, asserts
 the round trip, and tears down — this is what CI runs:
@@ -54,19 +54,19 @@ in `rp1_drive.urdf` matches `sim_vesc_node.py --pole-pairs`. Both default to 7. 
 the real hardware component, not `use_mock:=true` — mock leaves the ESC telemetry at NaN and the
 voltage phase will (correctly) fail.
 
-## Run: steering actuators (`rp1_hardware_interface`)
+## Run: steering actuators (`vesc_dronecan_driver`)
 
 ```bash
 python3 simulation/sim_actuator_node.py --iface vcan0    # pretends to be the steering VESCs
                                                            # (default actuator_id 5,6; pass
                                                            # --actuator-ids 4,5,6,7 for all 4)
 
-source /opt/ros/kilted/setup.bash
+source /opt/ros/$ROS_DISTRO/setup.bash
 source ros2_ws/install/setup.bash
-# rp1_hardware_interface talks SocketCAN directly -- point
-# its hardware "can_iface" param at vcan0, e.g. via steering_hardware.launch.py, or edit
-# rp1_steering.urdf's <param name="can_iface"> to vcan0 for this test.
-ros2 launch rp1_hardware_interface steering_hardware.launch.py
+# vesc_dronecan_driver talks SocketCAN directly, and ros2_control reads hardware params from the
+# robot description only -- so unlike the drive bringup there is no can_iface launch argument
+# here. Edit rp1_steering.urdf's <param name="can_iface"> to vcan0 for this test.
+ros2 launch rp1_bringup steering_bench.launch.py
 ```
 
 `sim_vesc_node.py` and `sim_actuator_node.py` can run simultaneously on the same `vcan0` (use

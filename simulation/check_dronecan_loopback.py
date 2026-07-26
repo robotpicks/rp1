@@ -3,7 +3,7 @@
 
 Drives the real bringup pipeline with a known TwistStamped and checks what comes back off the
 CAN bus, so it only passes if the whole path is intact: diff_drive_controller's skid-steer
-kinematics, rp1_hardware_interface encoding esc.RPMCommand, real DroneCAN framing on the wire,
+kinematics, vesc_dronecan_driver encoding esc.RPMCommand, real DroneCAN framing on the wire,
 sim_vesc_node decoding it, its esc.Status replies, and the hardware component turning those back
 into ros2_control state interfaces. Run it against `sim_vesc_node.py --iface vcan0` plus
 `ros2 launch rp1_bringup rp1_mvp.launch.py can_iface:=vcan0 teleop:=false` (see README.md here);
@@ -42,7 +42,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-# Must match the joint names in rp1_hardware_interface/urdf/rp1_drive.urdf and the wheel lists in
+# Must match the joint names in rp1_description/urdf/rp1_drive.urdf and the wheel lists in
 # rp1_bringup/config/rp1_controllers.yaml.
 DRIVE_JOINTS = (
     'drive_front_left', 'drive_front_right', 'drive_rear_left', 'drive_rear_right')

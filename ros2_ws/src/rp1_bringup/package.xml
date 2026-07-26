@@ -12,7 +12,8 @@
   <exec_depend>joy</exec_depend>
   <exec_depend>rp1_teleop</exec_depend>
   <exec_depend>rp1_elrs</exec_depend>
-  <exec_depend>rp1_hardware_interface</exec_depend>
+  <exec_depend>vesc_dronecan_driver</exec_depend>
+  <exec_depend>rp1_description</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>diff_drive_controller</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>

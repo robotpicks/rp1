@@ -4,7 +4,7 @@
 No ROS2 dependency -- the real VESCs don't have one either, they just speak DroneCAN on the
 wire. Point this at a virtual CAN interface (see README.md in this directory for `vcan0` setup)
 and it'll consume `uavcan.equipment.esc.RPMCommand` and reply with `uavcan.equipment.esc.Status`,
-so rp1_hardware_interface can be run for real -- actual DroneCAN framing, against a virtual bus
+so vesc_dronecan_driver can be run for real -- actual DroneCAN framing, against a virtual bus
 -- with zero physical hardware.
 
 It reproduces the VESC firmware's RPM unit asymmetry deliberately, because that is the part of

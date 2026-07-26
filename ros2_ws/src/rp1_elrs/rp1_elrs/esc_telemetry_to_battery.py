@@ -2,7 +2,7 @@
 
 The ExpressLRS driver (`elrs_driver`, from the elrs_ros submodule) is robot-agnostic: it sends
 handset battery telemetry from a standard `sensor_msgs/BatteryState`. rp1's per-wheel voltage and
-current come off the VESCs in uavcan.equipment.esc.Status, which rp1_hardware_interface exports as
+current come off the VESCs in uavcan.equipment.esc.Status, which vesc_dronecan_driver exports as
 <gpio> state interfaces; joint_state_broadcaster publishes those on /dynamic_joint_states. This
 thin node aggregates them into one pack-level BatteryState.
 

@@ -1,4 +1,4 @@
-"""Brings up the rp1_hardware_interface Rp1Hardware plugin under controller_manager, plus
+"""Brings up the vesc_dronecan_driver VescDroneCanSystem plugin under controller_manager, plus
 joint_state_broadcaster and a position_controllers/JointGroupPositionController claiming the
 two steering joints' position command interfaces -- the real closed-loop-wiring test (still no
 encoder on the bench VESCs, so position feedback itself isn't meaningful yet, but this confirms
@@ -21,7 +21,7 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('rp1_hardware_interface')
+    pkg_share = get_package_share_directory('rp1_description')
     urdf_path = os.path.join(pkg_share, 'urdf', 'rp1_steering.urdf')
     controller_manager_config = os.path.join(pkg_share, 'config', 'controller_manager.yaml')
 

@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rp1_description</name>
+  <version>0.0.1</version>
+  <description>
+    rp1's robot descriptions: the MVP 4-wheel drive base and the steering bench rig. Both name
+    vesc_dronecan_driver/VescDroneCanSystem as their ros2_control hardware plugin and carry the
+    DroneCAN esc_index / actuator_id assignments from docs/can_id_map.md.
+  </description>
+  <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- The plugin the URDFs name. Not a build dependency (nothing here compiles), but a runtime
+       one: controller_manager cannot load these descriptions without it. -->
+  <exec_depend>vesc_dronecan_driver</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

@@ -24,7 +24,7 @@
 
   <ros2_control name="rp1_steering" type="system">
     <hardware>
-      <plugin>rp1_hardware_interface/Rp1Hardware</plugin>
+      <plugin>vesc_dronecan_driver/VescDroneCanSystem</plugin>
       <param name="can_iface">can0</param>
       <!-- Distinct from rp1_drive.urdf's 42: this bench description runs on its own, so the two
            never share a bus at the same time. When the swerve controller merges drive and

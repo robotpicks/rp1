@@ -1,5 +1,5 @@
 """rp1 MVP teleop pipeline driven by an ExpressLRS radio instead of the Xbox pad:
-elrs_driver -> /joy -> rp1_teleop -> diff_drive_controller -> rp1_hardware_interface -> DroneCAN.
+elrs_driver -> /joy -> rp1_teleop -> diff_drive_controller -> vesc_dronecan_driver -> DroneCAN.
 
 Identical to rp1_mvp.launch.py except the /joy source: there is no joy_node here; the generic
 elrs_driver (elrs_ros submodule) reads the CRSF link and publishes /joy itself. Telemetry back to
@@ -32,7 +32,7 @@ def generate_launch_description():
     joy_elrs_config = os.path.join(
         get_package_share_directory('rp1_elrs'), 'config', 'joy_elrs.yaml')
     urdf_path = os.path.join(
-        get_package_share_directory('rp1_hardware_interface'), 'urdf', 'rp1_drive.urdf')
+        get_package_share_directory('rp1_description'), 'urdf', 'rp1_drive.urdf')
 
     with open(urdf_path, 'r') as f:
         robot_description = f.read()

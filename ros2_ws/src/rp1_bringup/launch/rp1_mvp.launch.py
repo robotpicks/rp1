@@ -1,12 +1,12 @@
 """Full rp1 MVP teleop pipeline on ros2_control: joy -> rp1_teleop -> diff_drive_controller ->
-rp1_hardware_interface -> DroneCAN -> the 4 drive VESCs.
+vesc_dronecan_driver -> DroneCAN -> the 4 drive VESCs.
 
 This replaced the old rp1_teleop -> rp1_control -> rp1_dronecan_bridge topic chain. The
 skid-steer kinematics, the /cmd_vel watchdog and the odometry are diff_drive_controller's now,
 and the DroneCAN encoding moved into the hardware component's read()/write() -- see
 docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks it moved.
 
-  use_mock:=true swaps the real Rp1Hardware plugin for ros2_control's mock_components/
+  use_mock:=true swaps the real VescDroneCanSystem plugin for ros2_control's mock_components/
   GenericSystem, which loops commands straight back to states. That is the no-hardware,
   no-CAN way to exercise the whole controller stack (it replaced rp1_sim's sim_bridge_node).
   rviz:=true additionally starts rviz2.
@@ -47,16 +47,25 @@ def _robot_description(context):
     name nor the CAN interface can be overridden as a node parameter.
     """
     urdf_path = os.path.join(
-        get_package_share_directory('rp1_hardware_interface'), 'urdf', 'rp1_drive.urdf')
+        get_package_share_directory('rp1_description'), 'urdf', 'rp1_drive.urdf')
     with open(urdf_path, 'r') as f:
         description = f.read()
 
     if LaunchConfiguration('use_mock').perform(context).lower() in ('true', '1'):
         # Swapping the plugin by string substitution keeps a single URDF as the one description
         # of the robot; a xacro arg would pull xacro into the runtime path for one line.
-        description = description.replace(
-            '<plugin>rp1_hardware_interface/Rp1Hardware</plugin>',
-            '<plugin>mock_components/GenericSystem</plugin>')
+        #
+        # Matched by <plugin> tag rather than by the plugin's literal name, and checked: a bare
+        # .replace() that silently matches nothing would leave the REAL DroneCAN plugin loaded
+        # under use_mock:=true and open the CAN device -- the exact failure this argument exists
+        # to prevent, and one that renaming the plugin would otherwise cause. Fail loudly instead.
+        description, swapped = re.subn(
+            r'<plugin>[^<]*</plugin>',
+            '<plugin>mock_components/GenericSystem</plugin>', description, count=1)
+        if swapped != 1:
+            raise RuntimeError(
+                f'{urdf_path} has no <plugin> to swap for mock_components/GenericSystem -- '
+                'use_mock:=true would silently run the real hardware, so refusing to start.')
 
     can_iface = LaunchConfiguration('can_iface').perform(context)
     # Matched by name rather than by the literal default so this keeps working if the URDF's

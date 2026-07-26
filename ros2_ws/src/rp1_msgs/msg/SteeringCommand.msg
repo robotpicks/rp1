@@ -1,6 +1,6 @@
 # Per-wheel steering angle command for the swerve extension (see docs/can_id_map.md's
 # steering actuator_id = wheel index + 4 convention -- that offset is a DroneCAN addressing
-# detail internal to rp1_hardware_interface/firmware, not used at this ROS2 topic level).
+# detail internal to vesc_dronecan_driver/firmware, not used at this ROS2 topic level).
 #
 # `angle` is in radians. The steering joints are continuous-rotation (not bounded to a fixed
 # range) -- see CLAUDE.md.

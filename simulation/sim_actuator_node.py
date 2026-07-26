@@ -5,8 +5,8 @@ to sim_vesc_node.py (which simulates the 4 drive-wheel ESCs).
 
 No ROS2 dependency -- the real VESCs don't have one either, they just speak DroneCAN on the
 wire. Point this at a virtual CAN interface (see README.md in this directory for `vcan0` setup)
-alongside sim_vesc_node.py and it lets rp1_hardware_interface (ros2_ws/src/
-rp1_hardware_interface) be exercised for real -- actual DroneCAN framing, not just unit tests --
+alongside sim_vesc_node.py and it lets vesc_dronecan_driver (ros2_ws/src/
+vesc_dronecan_driver) be exercised for real -- actual DroneCAN framing, not just unit tests --
 with zero physical hardware.
 
 Actuator IDs default to 5 and 6 (the two currently bench-wired steering actuators, see

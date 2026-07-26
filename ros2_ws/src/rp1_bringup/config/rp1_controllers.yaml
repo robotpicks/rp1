@@ -3,7 +3,7 @@
 # This replaces the old rp1_control node: the skid-steer kinematics, the command timeout and the
 # odometry are all diff_drive_controller's now. Wheel geometry lives here rather than in the
 # URDF because diff_drive_controller takes it as its own parameters -- keep these in step with
-# rp1_hardware_interface/urdf/rp1_drive.urdf by hand.
+# rp1_description/urdf/rp1_drive.urdf by hand.
 controller_manager:
   ros__parameters:
     update_rate: 50  # Hz -- the rate read()/write() and therefore RPMCommand broadcast run at

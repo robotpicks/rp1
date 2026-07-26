@@ -13,7 +13,7 @@
   patches, X forward / Y left / Z up (REP-103) -- the convention §1 of the mechanical request
   asks mechanical design to confirm.
 
-  Steering actuators are deliberately NOT in this description: the same Rp1Hardware component
+  Steering actuators are deliberately NOT in this description: the same VescDroneCanSystem component
   handles them (see rp1_steering.urdf), but including them here would broadcast an
   actuator.ArrayCommand every cycle with whatever the unclaimed command interface holds, at
   wheels that have no encoder yet. Add them when the swerve controller exists.
@@ -57,7 +57,7 @@
 
   <ros2_control name="rp1_drive" type="system">
     <hardware>
-      <plugin>rp1_hardware_interface/Rp1Hardware</plugin>
+      <plugin>vesc_dronecan_driver/VescDroneCanSystem</plugin>
       <param name="can_iface">can0</param>
       <param name="node_id">42</param>
       <!-- Motor revolutions per wheel revolution. PLACEHOLDER: §3.4.5 of the mechanical
