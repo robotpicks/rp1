@@ -1,11 +1,17 @@
-# rp1 config for the ELRS telemetry adapter (wheel_feedback_to_battery).
+# rp1 config for the ELRS telemetry adapter (esc_telemetry_to_battery).
 #
 # The generic RC/telemetry driver (elrs_driver, from the elrs_ros submodule: RC -> /joy,
 # /battery -> handset) is configured by that package's own config/elrs_driver.yaml plus the
 # robot-specific serial_port override in rp1_bringup/config/rp1_mvp.yaml. This file only holds
-# rp1's WheelFeedback -> BatteryState adapter.
+# rp1's ESC telemetry -> BatteryState adapter.
 
-wheel_feedback_to_battery:
+esc_telemetry_to_battery:
   ros__parameters:
-    battery_source: mean     # 'mean' of the 4 wheels that reported, or a wheel index '0'..'3'
+    # 'mean' of the ESCs that reported, or one <gpio> name from rp1_drive.urdf.
+    battery_source: mean
     publish_rate_hz: 5.0
+    esc_names:
+      - esc_front_left
+      - esc_front_right
+      - esc_rear_left
+      - esc_rear_right

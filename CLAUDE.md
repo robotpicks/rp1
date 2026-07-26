@@ -14,11 +14,18 @@ Communication architecture (PC → robot):
 
 ```
 [Xbox Series X controller] --USB--> joy_node -----\
-[ExpressLRS radio] --CRSF/UART--> elrs_driver ----->--joy--> ROS2 (rp1_teleop -> /cmd_vel ->
-        rp1_control -> /wheel_cmd)
-        -> rp1_dronecan_bridge (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
+[ExpressLRS radio] --CRSF/UART--> elrs_driver ----->--joy--> rp1_teleop -> /cmd_vel (TwistStamped)
+        -> diff_drive_controller (skid-steer kinematics + odometry, stock ros2_controllers)
+        -> ros2_control velocity command interfaces
+        -> rp1_hardware_interface (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
         -> VESC #1-4 (CAN mode: VESC+UAVCAN) -> motors
 ```
+
+**The drive path is ros2_control.** `rp1_control` (hand-written skid-steer kinematics) and
+`rp1_dronecan_bridge` (a Python DroneCAN node) both existed once and are both gone: the
+kinematics, the `/cmd_vel` watchdog and the odometry are `diff_drive_controller`'s, and the
+DroneCAN encoding moved into the hardware component's `read()`/`write()`. DroneCAN itself is
+unchanged -- only the process that speaks it moved. Don't reintroduce a separate bridge node.
 
 Two interchangeable RC inputs feed the same `/joy` topic: the Xbox pad via `joy_node`, or an
 ExpressLRS radio via `elrs_driver` (CRSF over UART). Pick one per bringup (`rp1_mvp.launch.py` vs
@@ -26,11 +33,12 @@ ExpressLRS radio via `elrs_driver` (CRSF over UART). Pick one per bringup (`rp1_
 
 `elrs_driver` is **not in this repo**: it was extracted to the robot-agnostic `elrs_ros`
 repository (a sibling submodule of the `robotpicks` meta repo). What stays here is `rp1_elrs`, the
-rp1-specific glue: the `/wheel_feedback` -> `/battery` telemetry adapter plus rp1's ELRS configs.
+rp1-specific glue: the `/dynamic_joint_states` -> `/battery` telemetry adapter plus rp1's ELRS
+configs.
 Build both together with `robotpicks.sh build rp1`, or point colcon at both trees:
 `colcon build --base-paths src ../../elrs_ros`.
 
-- **DroneCAN is the runtime transport** from the PC to the robot (via `rp1_dronecan_bridge`).
+- **DroneCAN is the runtime transport** from the PC to the robot (via `rp1_hardware_interface`).
 - **There is no separate bridge MCU.** VESC firmware has a built-in UAVCAN/DroneCAN CAN mode,
   so the PC's CAN adapter wires directly to a single bus carrying the 4 VESCs. (An earlier plan
   revision assumed a custom-firmware bridge MCU translating DroneCAN↔VESC-CAN; that's been
@@ -38,13 +46,13 @@ Build both together with `robotpicks.sh build rp1`, or point colcon at both tree
 - **VESC's own USB CAN-config protocol (VESC Tool) is only used for one-off per-motor
   configuration** (CAN mode, DroneCAN node ID, `esc_index`, FOC tuning) — never in the runtime
   control path.
-- `rp1_dronecan_bridge` can run today in `require_can:=false` dry-run mode (logs intended
-  frames instead of opening a CAN device), and there are two ways to run the whole pipeline
-  with zero hardware — see "Simulation" below.
+- The whole pipeline runs with zero hardware via `use_mock:=true`, which swaps the hardware
+  plugin for `mock_components/GenericSystem` — see "Simulation" below. (This replaced
+  `rp1_dronecan_bridge`'s `require_can:=false` dry run and `rp1_sim`'s `sim_bridge_node`.)
 - `elrs_driver` (in the `elrs_ros` submodule) is an **optional alternative RC input**: an
   ExpressLRS receiver's CRSF stream over a UART, republished as `/joy` (so `rp1_teleop` is reused
   unchanged), with battery telemetry pushed back to the handset. It has the same
-  `require_serial:=false` dry-run escape hatch as the bridge. Only standard CRSF is implemented;
+  `require_serial:=false` dry-run escape hatch. Only standard CRSF is implemented;
   **MAVLink-over-ELRS is a deliberately-deferred Phase-2 mode** — the wire protocol lives in
   `elrs_driver/crsf.py` specifically so a MAVLink codec can be added beside it (and a UDP-to-GCS
   sink is an independent later add). Don't build the MAVLink path into the CRSF path.
@@ -72,15 +80,15 @@ Run just the teleop leg (joy -> /cmd_vel) for isolated testing:
 ros2 launch rp1_teleop teleop.launch.py
 ```
 
-Run the DroneCAN bridge without CAN hardware attached (logs intended frames instead of sending):
+Run the whole pipeline with no CAN hardware at all (mock hardware component — the main way to
+check the ROS2 architecture itself):
 ```bash
-ros2 run rp1_dronecan_bridge bridge_node --ros-args -p require_can:=false
+ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true
 ```
 
-Run the whole pipeline against `rp1_sim` (pure ROS2, no CAN at all — the main way to check the
-ROS2 architecture itself):
+Point the real hardware component at a virtual bus, with nothing driving cmd_vel:
 ```bash
-ros2 launch rp1_bringup rp1_mvp_sim.launch.py
+ros2 launch rp1_bringup rp1_mvp.launch.py can_iface:=vcan0 teleop:=false
 ```
 
 The only automated tests are `elrs_driver`'s pure-python codec/link tests (10 of them, in the
@@ -124,9 +132,10 @@ them.
 ### Workspace layout
 
 - `ros2_ws/src/` — colcon workspace, one package per pipeline stage (see below).
-- `docs/can_id_map.md` — the source of truth for DroneCAN node IDs and the wheel-index ↔
-  `esc_index` mapping. `rp1_dronecan_bridge` and each VESC's UAVCAN config (set via VESC Tool)
-  must agree with this file.
+- `docs/can_id_map.md` — the source of truth for DroneCAN node IDs, the wheel-index ↔
+  `esc_index` mapping, and the firmware's ERPM/mechanical-RPM asymmetry.
+  `rp1_hardware_interface`'s URDF and each VESC's UAVCAN config (set via VESC Tool) must agree
+  with this file.
 - `docs/wiring.md` — bus wiring, VESC one-off configuration notes, controller pairing, and the
   hardware bring-up order (configure each VESC's UAVCAN settings before sharing the bus; wheels
   off the ground before driving).
@@ -136,21 +145,25 @@ them.
 ### ROS2 packages (`ros2_ws/src/`) and topic flow
 
 ```
-/joy --[rp1_teleop]--> /cmd_vel --[rp1_control]--> /wheel_cmd --[rp1_dronecan_bridge]--> DroneCAN --> VESCs
-                                                       (or)--[rp1_sim]--> /odom, /tf          DroneCAN --> /wheel_feedback
+/joy --[rp1_teleop]--> /diff_drive_controller/cmd_vel (TwistStamped)
+     --[diff_drive_controller]--> velocity command interfaces --[rp1_hardware_interface]--> DroneCAN --> VESCs
+                                  /diff_drive_controller/odom + odom->base_link TF
+     VESCs --> DroneCAN --> [rp1_hardware_interface] --> /joint_states, /dynamic_joint_states
 ```
 
-- **`rp1_msgs`** — the only `ament_cmake`/`rosidl` package. Defines `WheelCommand` (per-wheel
-  normalized `[-1, 1]` setpoint) and `WheelFeedback` (per-wheel rpm/voltage/current). Both use
-  the same wheel-index constants (`WHEEL_FRONT_LEFT=0, WHEEL_FRONT_RIGHT=1, WHEEL_REAR_LEFT=2,
-  WHEEL_REAR_RIGHT=3`) — this indexing is used directly as the DroneCAN `esc_index` downstream,
-  so don't introduce a second translation layer for it without updating `docs/can_id_map.md`.
+- **`rp1_msgs`** — the only `ament_cmake`/`rosidl` package. Defines `WheelCommand`,
+  `WheelFeedback`, `SteeringCommand` and `SteeringFeedback`, all sharing the wheel-index
+  constants (`WHEEL_FRONT_LEFT=0, WHEEL_FRONT_RIGHT=1, WHEEL_REAR_LEFT=2, WHEEL_REAR_RIGHT=3`).
+  **The MVP drive path no longer uses these** — ros2_control carries commands and state over
+  interfaces, not topics. They remain because `rp1_sim`'s `swerve_sim_node` is still built on
+  them. Don't add them back into the hardware path.
 - **`rp1_teleop`** (`teleop_node.py`) — Xbox Series X mapping is config, not hardcoded
   (`config/joy_xbox_series_x.yaml`): axis/button indices, scale, deadman button, joy-timeout.
-  Only publishes non-zero `Twist` while the deadman button is held; zeroes output if `/joy`
-  goes stale. Axis/button numbering is the common Linux `joy_node` (xpad) convention but is
+  Only publishes non-zero `TwistStamped` while the deadman button is held; zeroes output if
+  `/joy` goes stale. **TwistStamped, not Twist**: `diff_drive_controller` in this ROS 2 release
+  subscribes to `TwistStamped` only, with no `use_stamped_vel` escape hatch. Axis/button numbering is the common Linux `joy_node` (xpad) convention but is
   **unverified against real hardware** — check with `ros2 topic echo /joy` or `jstest` first.
-- **`rp1_elrs`** (`wheel_feedback_to_battery.py`) — rp1's glue for the optional ExpressLRS RC
+- **`rp1_elrs`** (`esc_telemetry_to_battery.py`) — rp1's glue for the optional ExpressLRS RC
   input. The driver itself is **`elrs_driver`, in the `elrs_ros` submodule, not here**: it reads
   the CRSF stream from a serial port (`pyserial`, `serial_port`/`baud` params) via the
   ROS-independent codec in its `crsf.py`, unpacks `RC_CHANNELS_PACKED`, and publishes
@@ -164,54 +177,75 @@ them.
   driver robot-agnostic — plus rp1's ELRS configs (`config/rp1_elrs.yaml`, `config/joy_elrs.yaml`).
   The full pipeline needs **both** nodes (see `rp1_mvp_elrs.launch.py`). **CRSF only; MAVLink is
   Phase-2** (see the "What this is" note above).
-- **`rp1_control`** (`control_node.py`) — skid-steer kinematics only (no steering joints yet):
-  `v_left = v - w*track_width/2`, `v_right = v + w*track_width/2`, both sides scaled by
-  `max_wheel_speed` into the normalized WheelCommand range. If either side would exceed
-  `[-1, 1]`, **both** are scaled down together (see `_publish`) to preserve the requested turn
-  ratio rather than clipping independently — preserve this behavior if you touch the scaling.
-  Has its own `/cmd_vel` staleness watchdog independent of rp1_teleop's.
-- **`rp1_dronecan_bridge`** (`bridge_node.py`) — talks DroneCAN directly to the VESCs (no
-  separate bridge MCU, see "What this is" above). Uses the `dronecan` python library over a
-  SocketCAN interface (`can_iface` param, default `can0`). Pumps `dronecan_node.spin(timeout=0)`
-  on a fast ROS2 timer to process incoming CAN frames alongside broadcasting `esc.RawCommand`
-  at `command_rate_hz`. `require_can: false` skips opening a CAN device entirely and just logs
-  what would be sent.
-- **`rp1_sim`** (`sim_bridge_node.py`) — pure-ROS2 drop-in replacement for
-  `rp1_dronecan_bridge` with **no CAN/DroneCAN involved at all**: subscribes the same
-  `/wheel_cmd`, integrates skid-steer dynamics (must be kept in sync with `rp1_control`'s
-  `track_width`/`max_wheel_speed` — see `config/rp1_sim.yaml`), and publishes `/wheel_feedback`
-  plus `nav_msgs/Odometry` + an `odom`→`base_link` TF. The rpm/voltage/current numbers are a
-  plausible telemetry shape, not a physically accurate motor model. This is the primary way to
-  validate the ROS2 graph itself (e.g. with rviz2) before any CAN hardware exists.
-- **`rp1_bringup`** — no code, just launch files + `config/rp1_mvp.yaml`. Launch files include
-  `rp1_mvp.launch.py` (real hardware, ends in `rp1_dronecan_bridge`), `rp1_mvp_sim.launch.py`
-  (identical joy/teleop/control stack, but ends in `rp1_sim` instead), and
-  `rp1_mvp_elrs.launch.py` (like `rp1_mvp` but the `/joy` source is `elrs_driver` instead of
-  `joy_node`, plus `rp1_elrs`'s `wheel_feedback_to_battery` for the telemetry direction). Each
-  node's parameters are layered: that node's own package `config/*.yaml` defaults first, then
-  `rp1_bringup`'s `rp1_mvp.yaml` on top for the handful of robot-specific values (track width, CAN
-  interface, deadman button) — add new tunables to the owning package's default config, and only
-  add an override here if it's genuinely robot-specific/likely to change per deployment. The
-  per-node blocks in `rp1_mvp.yaml` are keyed by **node name**, so they must track the names used
-  in the launch files (e.g. the ELRS block is `elrs_driver:`, matching the extracted driver's node
-  name — a stale key is silently ignored, not an error).
+- **`rp1_hardware_interface`** (`src/rp1_hardware.cpp`, C++) — the ros2_control `SystemInterface`
+  that speaks DroneCAN to the VESCs, using a **vendored copy of libcanard** (`vendor/libcanard/`,
+  the same codec the firmware uses) over a raw non-blocking SocketCAN socket. One component
+  handles both wheel kinds on one bus and one node ID; which kind a joint is comes from its URDF
+  parameters — `esc_index` means a drive wheel (velocity command via `esc.RPMCommand`, feedback
+  from `esc.Status`), `actuator_id` means a steering actuator (position command via
+  `actuator.ArrayCommand`). Per-ESC voltage/current/temperature is exported through `<gpio>`
+  state interfaces. Two things to know before touching it:
+  - **The firmware's RPM units are asymmetric** (`esc.Status` is mechanical RPM, `RPMCommand` is
+    interpreted as ERPM). The `command_rpm_is_erpm` hardware parameter compensates. See
+    `docs/can_id_map.md`.
+  - **Drive wheel position is integrated from velocity** — `esc.Status` carries no position —
+    which is why `diff_drive_controller` runs with `position_feedback: false`.
+  - Only the esc and actuator DSDL are vendored. Adding a message means copying its generated
+    sources from `bldc/libcanard/dsdl/` and adding them to the `rp1_canard` CMake target;
+    `canard.h`/`canard_internals.h` carry an rp1-specific `CANARD_ENABLE_CANFD=1` fix for a
+    64-bit pointer-layout assumption, so preserve that when re-vendoring.
+- **`rp1_sim`** (`swerve_sim_node.py`) — pure-ROS2 swerve simulator: 4 drive wheels + 4 steering
+  actuators, consuming `rp1_msgs/WheelCommand` + `SteeringCommand` and publishing odometry and
+  TF. **Nothing publishes those topics** — there is no swerve inverse-kinematics controller yet,
+  so it is driven by hand with `ros2 topic pub`. The MVP skid-steer simulator that used to live
+  here (`sim_bridge_node.py`) is gone: `use_mock:=true` covers that case with ros2_control's
+  `mock_components/GenericSystem` plus the controller's own odometry.
+- **`rp1_bringup`** — no code, just launch files + `config/rp1_mvp.yaml` and
+  `config/rp1_controllers.yaml`. `rp1_mvp.launch.py` is the whole MVP (args: `use_mock`,
+  `can_iface`, `teleop`, `rviz`); `rp1_mvp_elrs.launch.py` is the same with `elrs_driver` as the
+  `/joy` source plus `rp1_elrs`'s telemetry adapter; `rp1_swerve_sim.launch.py` runs the swerve
+  simulator standalone. Three things bite here, all commented in the launch files:
+  - **controller_manager takes `robot_description` from the TOPIC**, not a parameter. It waits
+    on `/robot_description` until `robot_state_publisher` latches it. Passing a different
+    description as a parameter is silently ignored — which would mean `use_mock:=true` quietly
+    loading the real DroneCAN plugin and opening `can0`.
+  - **Spawners need `--param-file`.** A controller node does not inherit the params file given
+    to `ros2_control_node`; without it `diff_drive_controller` declares `wheel_separation` at its
+    `0.0` default, violating that parameter's own `> 0` range, and fails to load.
+  - **Spawn controllers strictly sequentially.** controller_manager's service handling shares a
+    thread with its RT update loop (ros-controls/ros2_control#2808); two spawners at once hung it
+    outright in this sandbox.
+  - `joint_state_broadcaster` needs `use_urdf_to_filter: false`, or the `<gpio>` telemetry
+    interfaces are dropped from `/dynamic_joint_states` and the handset battery goes dead
+    silently.
+  Hardware parameters (`can_iface`, `node_id`, `gear_ratio`, `motor_pole_pairs`) live in the
+  URDF, not `rp1_mvp.yaml` — ros2_control reads them from the description only.
 
 ### Simulation (two tiers)
 
-- `rp1_sim` (see above) — pure ROS2, no CAN. Primary tool for checking the ROS2 architecture.
-- `simulation/sim_vesc_node.py` (bonus) — a standalone script (no ROS2 dependency, since the
-  real VESCs don't have one either) using `python-dronecan` over a Linux `vcan` interface,
-  pretending to be the 4 VESCs. Use this to exercise the real `rp1_dronecan_bridge` — actual
-  DroneCAN framing over a virtual CAN bus — without any physical hardware. See
+- **`use_mock:=true`** — swaps the hardware plugin for `mock_components/GenericSystem`: no CAN,
+  no DroneCAN, commands loop straight back to states, and `diff_drive_controller` still produces
+  real odometry and TF. Primary tool for checking the ROS2 architecture.
+- **`simulation/sim_vesc_node.py`** — a standalone script (no ROS2 dependency, since the real
+  VESCs don't have one either) using `python-dronecan` over a Linux `vcan` interface, pretending
+  to be the 4 VESCs. Run the real stack against it with `can_iface:=vcan0` to exercise actual
+  DroneCAN framing over a virtual bus — this is the only tier that tests the wire protocol. See
   `simulation/README.md` for `vcan0` setup (needs `sudo`, not automatable in a sandboxed
-  session).
+  session). `simulation/sim_actuator_node.py` does the same for steering actuators.
 
 ### Extending to full swerve (steering joints) — not yet started
 
-When steering joints are added, the intended shape of the change (see `docs/can_id_map.md`) is:
-extend `rp1_dronecan_bridge` (and each steering actuator's DroneCAN config) to also handle
-`uavcan.equipment.actuator.ArrayCommand`/`Status`, and replace `rp1_control`'s skid-steer
-kinematics with full swerve inverse kinematics (per-wheel speed *and* angle, including wheel
-angle wrap for continuous joints). The steering actuator type (VESC position/FOC mode vs. a
-separate servo/stepper + encoder) is an open decision, deliberately deferred so it doesn't box
-in the MVP.
+The hardware half is **already done**: `Rp1Hardware` handles `actuator.ArrayCommand`/`Status`
+and reads its joint list from the URDF, so going from 2 to 4 steering actuators is a URDF edit,
+not a code change. What is missing is the controller: **ros2_controllers has no swerve
+controller** (`steering_controllers_library` covers Ackermann/bicycle/tricycle, not swerve), so
+this needs a custom `controller_interface` plugin claiming 4 velocity + 4 position interfaces and
+doing the inverse kinematics (per-wheel speed *and* angle, including wheel angle wrap for
+continuous joints). When it exists, merge `rp1_drive.urdf` and `rp1_steering.urdf` into one
+description on a single node ID.
+
+Two blockers are hardware, not software: the bench steering VESCs have **no encoders**
+(`mc_interface_set_pid_pos` needs FOC position feedback, so reported positions are meaningless),
+and firmware `ArrayCommand` support is on the `add-actuator-arraycommand` branch, not mainline.
+The steering actuator type (VESC position/FOC mode vs. a separate servo/stepper + encoder) is an
+open decision, deliberately deferred so it doesn't box in the MVP.

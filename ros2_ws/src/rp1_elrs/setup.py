@@ -19,13 +19,13 @@ setup(
     zip_safe=True,
     maintainer='uzi.mor',
     maintainer_email='uzi.mor@gmail.com',
-    description='rp1 glue for the generic elrs_driver: WheelFeedback -> BatteryState telemetry '
+    description='rp1 glue for the generic elrs_driver: ESC telemetry -> BatteryState '
                 'adapter + rp1 ELRS configs/launch.',
     license='Apache-2.0',
     extras_require={'test': ['pytest']},
     entry_points={
         'console_scripts': [
-            'wheel_feedback_to_battery = rp1_elrs.wheel_feedback_to_battery:main',
+            'esc_telemetry_to_battery = rp1_elrs.esc_telemetry_to_battery:main',
         ],
     },
 )

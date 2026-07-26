@@ -3,13 +3,13 @@
 <package format="3">
   <name>rp1_elrs</name>
   <version>0.0.1</version>
-  <description>rp1 glue for the generic elrs_driver (elrs_ros submodule): a WheelFeedback -&gt; sensor_msgs/BatteryState adapter so rp1 telemetry reaches the ELRS handset, plus rp1's ELRS configs and launch.</description>
+  <description>rp1 glue for the generic elrs_driver (elrs_ros submodule): a DynamicJointState -&gt; sensor_msgs/BatteryState adapter so rp1 telemetry reaches the ELRS handset, plus rp1's ELRS configs and launch.</description>
   <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
   <license>Apache-2.0</license>
 
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
-  <depend>rp1_msgs</depend>
+  <depend>control_msgs</depend>
   <exec_depend>elrs_driver</exec_depend>
   <exec_depend>rp1_teleop</exec_depend>
   <exec_depend>launch</exec_depend>

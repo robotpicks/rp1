@@ -2,42 +2,69 @@
 
 VESC firmware has a built-in UAVCAN/DroneCAN CAN mode, so **there is no separate bridge MCU**:
 the PC's CAN adapter wires directly to a single CAN bus carrying the 4 VESCs, each configured
-to speak DroneCAN natively. This file is the source of truth both `rp1_dronecan_bridge`
-(`ros2_ws/src/rp1_dronecan_bridge/`) and each VESC's UAVCAN config must agree on.
+to speak DroneCAN natively. This file is the source of truth both `rp1_hardware_interface`
+(`ros2_ws/src/rp1_hardware_interface/`) and each VESC's UAVCAN config must agree on.
 
 ```
-PC (rp1_dronecan_bridge) --DroneCAN over SocketCAN (can0)--> VESC #1..4 (CAN mode: UAVCAN)
+PC (rp1_hardware_interface) --DroneCAN over SocketCAN (can0)--> VESC #1..4 (CAN mode: UAVCAN)
 ```
+
+The DroneCAN encoding lives in the ros2_control hardware component's `read()`/`write()`, using a
+vendored copy of the same libcanard codec the firmware uses (`vendor/libcanard/`). It used to
+live in a separate `rp1_dronecan_bridge` node speaking the `dronecan` Python library; that node
+is gone. The wire protocol did not change with that move -- only the process that speaks it.
 
 ## Bus (`can0` in this repo's defaults)
 
 | Node                  | DroneCAN node ID |
 |-----------------------|------------------|
-| PC (`rp1_dronecan_bridge`) | 42 (see `rp1_dronecan_bridge/config/rp1_dronecan_bridge.yaml`) |
+| PC (`rp1_hardware_interface`) | 42 (the `node_id` hardware param in `urdf/rp1_drive.urdf`) |
 | VESC front-left       | TBD -- set via VESC Tool's UAVCAN page, must be unique on the bus |
 | VESC front-right      | TBD |
 | VESC rear-left        | TBD |
 | VESC rear-right       | TBD |
 
 Messages used:
-- `uavcan.equipment.esc.RawCommand` (PC -> VESCs): `cmd[esc_index]`, saturated int14
-  (-8192..8191). Only indices 0-3 are used for the MVP. Broadcast, not addressed to a node ID --
-  every VESC on the bus sees every RawCommand and picks out its own `esc_index`.
+- `uavcan.equipment.esc.RPMCommand` (PC -> VESCs): `rpm[esc_index]`, an 18-bit signed array.
+  Only indices 0-3 are used for the MVP. Broadcast, not addressed to a node ID -- every VESC on
+  the bus sees every RPMCommand and picks out its own `esc_index`. Firmware routes it to
+  `mc_interface_set_pid_speed()`, a closed-loop speed PID, which is what lets ros2_control
+  expose an honest **velocity** command interface.
 - `uavcan.equipment.esc.Status` (VESC -> PC): one message per wheel as it updates
-  (`esc_index`, `rpm`, `voltage`, `current`).
+  (`esc_index`, `rpm`, `voltage`, `current`, `temperature`).
 
-## Wheel index convention (`rp1_msgs/WheelCommand`, `rp1_msgs/WheelFeedback`)
+**The two directions do not use the same RPM units.** Confirmed in firmware 7.00
+(`libcanard/canard_driver.c`):
 
-| Index | Wheel       | DroneCAN esc_index (set on that VESC via VESC Tool) |
-|-------|-------------|-------------------------------------------------------|
-| 0     | Front-left  | 0                   |
-| 1     | Front-right | 1                   |
-| 2     | Rear-left   | 2                   |
-| 3     | Rear-right  | 3                   |
+| Direction | Code | Units on the wire |
+|-----------|------|-------------------|
+| VESC -> PC | `sendEscStatus()`: `status.rpm = mc_interface_get_rpm() / (si_motor_poles / 2.0)` | mechanical motor RPM |
+| PC -> VESC | `handle_esc_rpm_command()`: `mc_interface_set_pid_speed(rpm_val)`, no scaling | ERPM (electrical) |
 
-`rp1_dronecan_bridge` uses the WheelCommand index directly as the DroneCAN esc_index -- keep
-this 1:1 mapping unless there's a strong reason to diverge, to avoid a second translation layer.
-Each VESC's `esc_index` (set in VESC Tool, not its DroneCAN node ID) must match this table.
+So a value read back from `Status` cannot be commanded verbatim -- it is off by the pole-pair
+count. `rp1_hardware_interface` compensates on the command side, gated by the
+`command_rpm_is_erpm` hardware parameter (default `true`, matching the firmware as it stands).
+If the fork is ever fixed to scale the command side too, set that parameter `false` and the
+extra factor drops out. `esc.RawCommand` (duty cycle) is no longer used by the runtime path.
+
+Per-ESC `voltage`/`current`/`temperature` from the same `Status` messages are exported as
+ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` through
+`joint_state_broadcaster`; `rp1_elrs`'s `esc_telemetry_to_battery` turns them into the handset's
+`BatteryState`.
+
+## Wheel index convention
+
+| Index | Wheel       | ros2_control joint  | DroneCAN esc_index (set on that VESC via VESC Tool) |
+|-------|-------------|---------------------|------------------------------------------------------|
+| 0     | Front-left  | `drive_front_left`  | 0 |
+| 1     | Front-right | `drive_front_right` | 1 |
+| 2     | Rear-left   | `drive_rear_left`   | 2 |
+| 3     | Rear-right  | `drive_rear_right`  | 3 |
+
+Each VESC's `esc_index` (set in VESC Tool, not its DroneCAN node ID) must match this table, and
+must match the `esc_index` parameter on the corresponding joint in
+`rp1_hardware_interface/urdf/rp1_drive.urdf`. There is no separate translation layer -- the URDF
+joint carries the index directly.
 
 ## VESC UAVCAN configuration (one-off, per VESC, via VESC Tool over USB)
 
@@ -97,7 +124,10 @@ Only wheels 1 and 2's steering (`actuator_id` 5 and 6) are wired up on the bench
 - Real position control needs an encoder wired to the steering VESC (`mc_interface_set_pid_pos`
   requires FOC position feedback); none of the bench steering VESCs have one yet, so position
   values currently reflect FOC fighting phantom feedback, not real steering angle.
-- `ros2_ws/src/rp1_hardware_interface` bridges this to `ros2_control` (position command/state
-  interfaces per steering joint) directly over SocketCAN -- it does not go through
-  `rp1_dronecan_bridge`, which only ever speaks `esc.RawCommand`/`Status` for the 4 drive
-  wheels and has no notion of steering actuators.
+- `ros2_ws/src/rp1_hardware_interface` handles this through the same `Rp1Hardware` component as
+  the drive wheels: a joint declaring `actuator_id` is a steering actuator (position command),
+  one declaring `esc_index` is a drive wheel (velocity command). The MVP description
+  (`urdf/rp1_drive.urdf`) deliberately contains drive joints only -- including steering joints
+  there would broadcast an `actuator.ArrayCommand` every cycle carrying whatever an unclaimed
+  command interface holds, at wheels that still have no encoder. The bench steering description
+  (`urdf/rp1_steering.urdf`) is separate and used on its own.

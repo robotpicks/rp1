@@ -3,7 +3,7 @@
 <package format="3">
   <name>rp1_sim</name>
   <version>0.0.1</version>
-  <description>Pure-ROS2 stand-in for rp1_dronecan_bridge: simulates wheel dynamics and odometry so the teleop/control graph can be exercised with zero CAN hardware.</description>
+  <description>Pure-ROS2 swerve simulator (swerve_sim_node): 4 drive wheels + 4 steering actuators with dynamics and odometry, driven by hand until a swerve controller exists. The MVP skid-steer sim is now ros2_control mock_components -- see rp1_mvp.launch.py use_mock:=true.</description>
   <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
   <license>Apache-2.0</license>
 

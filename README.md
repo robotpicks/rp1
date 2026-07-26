@@ -14,10 +14,10 @@ the PC talks DroneCAN directly to the 4 VESCs over a single CAN bus.
         | (joy)
         v
    ROS2 (Kilted, on Ubuntu 24.04 in this environment; Jazzy-compatible)
-   joy_node -> rp1_teleop -> /cmd_vel -> rp1_control -> /wheel_cmd (per wheel)
+   joy_node -> rp1_teleop -> /cmd_vel (TwistStamped) -> diff_drive_controller
         |
         v
-   rp1_dronecan_bridge (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
+   rp1_hardware_interface (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
         |
         v
    VESC #1..#4 (CAN mode: UAVCAN) -> drive motors
@@ -38,18 +38,18 @@ is the planned extension, not yet implemented.
 | Layer | What it decides | Node(s) | Message |
 |-------|------------------|---------|---------|
 | Input | Human/autonomy intent: "go this fast, turn this fast" | `rp1_teleop` (`teleop_node.py`) | `sensor_msgs/Joy` → `geometry_msgs/Twist` on `/cmd_vel` |
-| Kinematics | Robot-frame velocity → what each individual actuator must do | `rp1_control` (`control_node.py`) | `/cmd_vel` → `rp1_msgs/WheelCommand` on `/wheel_cmd` |
-| Transport | Per-actuator setpoints → wire format understood by the hardware | `rp1_dronecan_bridge` (or `rp1_sim` for testing) | `WheelCommand` → DroneCAN `esc.RawCommand` |
+| Kinematics | Robot-frame velocity → what each individual actuator must do | `diff_drive_controller` (stock ros2_controllers) | `/cmd_vel` (TwistStamped) → per-wheel velocity command interfaces |
+| Transport | Per-actuator setpoints → wire format understood by the hardware | `rp1_hardware_interface` (ros2_control component; `use_mock:=true` for testing) | velocity interface → DroneCAN `esc.RPMCommand` |
 | Actuator | Actually spins/turns | VESC (drive), future steering actuator | motor duty / (future) joint position |
 
-**The 4 drive wheels (implemented):** `rp1_control` runs skid-steer kinematics --
+**The 4 drive wheels (implemented):** `diff_drive_controller` runs skid-steer kinematics --
 `v_left = v - w*track_width/2`, `v_right = v + w*track_width/2` -- and publishes one normalized
 velocity setpoint per wheel in `WheelCommand`. Drive wheels are **velocity-controlled**: there's
 no target angle to hold, so no position feedback loop is needed at this layer; `WheelFeedback`
-(rpm/voltage/current, from DroneCAN `esc.Status`) is telemetry, not something `rp1_control`
+(rpm/voltage/current, from DroneCAN `esc.Status`) is telemetry, not something the controller
 closes a loop on.
 
-**The 4 steering joints (planned, see `docs/can_id_map.md`):** once added, `rp1_control`'s
+**The 4 steering joints (planned, see `docs/can_id_map.md`):** once added, the controller's
 kinematics become full swerve inverse kinematics -- each wheel gets an independent (speed,
 angle) pair computed from the same `/cmd_vel`, instead of just a speed. Steering joints are
 **position-controlled** (continuous/360°, so angle wrap has to be handled explicitly), which is
@@ -58,21 +58,23 @@ a commanded angle, fed by DroneCAN `uavcan.equipment.actuator.ArrayCommand`/`Sta
 `esc.RawCommand`/`Status`. Whether that loop closes on the VESC itself (position/FOC mode) or on
 a separate servo/stepper + encoder is an open decision (see `docs/can_id_map.md`) -- either way,
 it sits at the same "Transport"/"Actuator" layers as the drive wheels, just a parallel path
-through `rp1_dronecan_bridge` rather than a new layer above `rp1_control`.
+through `rp1_hardware_interface` rather than a new layer above the controller.
 
 ## Repo layout
 
 - `ros2_ws/` — ROS2 colcon workspace.
-  - `rp1_msgs` — `WheelCommand` / `WheelFeedback` interfaces.
+  - `rp1_msgs` — `WheelCommand` / `WheelFeedback` / `SteeringCommand` / `SteeringFeedback`
+    interfaces. Used by `rp1_sim` only; the MVP drive path carries data over ros2_control
+    interfaces, not topics.
   - `rp1_teleop` — Xbox Series X → `/cmd_vel`.
-  - `rp1_control` — `/cmd_vel` → per-wheel skid-steer setpoints.
-  - `rp1_dronecan_bridge` — ROS2 ⇄ DroneCAN bridge node (PC side).
-  - `rp1_sim` — pure-ROS2 stand-in for `rp1_dronecan_bridge` (no CAN at all): simulates wheel
+  - `rp1_hardware_interface` — ros2_control hardware component: DroneCAN ⇄ command/state
+    interfaces, via a vendored libcanard (PC side).
+  - `rp1_sim` — pure-ROS2 swerve simulator (no CAN at all): simulates wheel
     dynamics + odometry so the teleop/control graph can be checked with zero hardware.
   - `rp1_bringup` — launch files + params tying the above together.
 - `docs/` — CAN id map, wiring notes.
 - `simulation/` — bonus: a virtual-CAN DroneCAN node that pretends to be the 4 VESCs, for
-  exercising the real `rp1_dronecan_bridge` (not `rp1_sim`) with no hardware. See
+  exercising the real hardware component (not `rp1_sim`) with no hardware. See
   `simulation/README.md`.
 
 ## Build
@@ -94,16 +96,16 @@ ros2 launch rp1_bringup rp1_mvp.launch.py
 
 Check the ROS2 architecture itself (teleop -> control -> odometry), no CAN involved:
 ```bash
-ros2 launch rp1_bringup rp1_mvp_sim.launch.py
+ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true
 ```
 
 Same, plus rviz2 pre-configured to show odometry/TF (fixed frame `odom`) so you can watch it
 move (drive it via `/cmd_vel` if no controller is attached):
 ```bash
-ros2 launch rp1_bringup rp1_mvp_sim_rviz.launch.py
+ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true rviz:=true
 ```
 
-Bonus: exercise the real `rp1_dronecan_bridge` (DroneCAN wire format and all) over a virtual
+Bonus: exercise the real hardware component (DroneCAN wire format and all) over a virtual
 CAN bus instead — see `simulation/README.md`.
 
 ## Status

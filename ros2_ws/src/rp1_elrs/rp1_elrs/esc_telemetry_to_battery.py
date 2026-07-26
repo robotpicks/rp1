@@ -1,69 +1,82 @@
-"""Adapter: rp1_msgs/WheelFeedback -> sensor_msgs/BatteryState for the generic elrs_driver.
+"""Adapter: per-ESC telemetry -> sensor_msgs/BatteryState for the generic elrs_driver.
 
 The ExpressLRS driver (`elrs_driver`, from the elrs_ros submodule) is robot-agnostic: it sends
-handset battery telemetry from a standard `sensor_msgs/BatteryState`. rp1's per-wheel telemetry
-lives in `rp1_msgs/WheelFeedback` (voltage/current per VESC), so this thin node aggregates the 4
-wheels into one pack-level BatteryState.
+handset battery telemetry from a standard `sensor_msgs/BatteryState`. rp1's per-wheel voltage and
+current come off the VESCs in uavcan.equipment.esc.Status, which rp1_hardware_interface exports as
+<gpio> state interfaces; joint_state_broadcaster publishes those on /dynamic_joint_states. This
+thin node aggregates them into one pack-level BatteryState.
+
+Previously this read rp1_msgs/WheelFeedback from rp1_dronecan_bridge. That node is gone -- the
+DroneCAN traffic is the hardware component's now -- so the source is control_msgs/DynamicJointState
+instead. /joint_states carries only position/velocity/effort, which is why this uses the dynamic
+topic: it is the one that carries arbitrary interface names like voltage and current.
 
 This is the *only* rp1-specific code in the ELRS path -- everything else (CRSF parsing, RC->Joy,
 serial, failsafe, telemetry framing) is the generic elrs_ros package. See rp1/CLAUDE.md.
 """
 
 import rclpy
+from control_msgs.msg import DynamicJointState
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from rp1_msgs.msg import WheelFeedback
 from sensor_msgs.msg import BatteryState
 
 
-class WheelFeedbackToBattery(Node):
+class EscTelemetryToBattery(Node):
 
     def __init__(self):
-        super().__init__('wheel_feedback_to_battery')
+        super().__init__('esc_telemetry_to_battery')
 
-        # 'mean' of the wheels that have reported, or a specific wheel index '0'..'3'.
+        # 'mean' of the ESCs that have reported, or one specific gpio name.
         self.declare_parameter('battery_source', 'mean')
         self.declare_parameter('publish_rate_hz', 5.0)
-        self._source = str(self.get_parameter('battery_source').value)
+        # The <gpio> names in rp1_drive.urdf. Anything else on /dynamic_joint_states is ignored.
+        self.declare_parameter('esc_names', [
+            'esc_front_left', 'esc_front_right', 'esc_rear_left', 'esc_rear_right'])
 
-        self._voltage = [None, None, None, None]
-        self._current = [None, None, None, None]
+        self._source = str(self.get_parameter('battery_source').value)
+        self._esc_names = list(self.get_parameter('esc_names').value)
+
+        self._voltage = {}
+        self._current = {}
 
         self._pub = self.create_publisher(BatteryState, 'battery', 10)
-        self.create_subscription(WheelFeedback, 'wheel_feedback', self._on_feedback, 10)
+        self.create_subscription(
+            DynamicJointState, 'dynamic_joint_states', self._on_state, 10)
 
         rate = self.get_parameter('publish_rate_hz').value
         self.create_timer(1.0 / rate, self._tick)
 
-    def _on_feedback(self, msg: WheelFeedback) -> None:
-        if 0 <= msg.wheel_index < 4:
-            self._voltage[msg.wheel_index] = float(msg.voltage)
-            self._current[msg.wheel_index] = float(msg.current)
+    def _on_state(self, msg: DynamicJointState) -> None:
+        for name, values in zip(msg.joint_names, msg.interface_values):
+            if name not in self._esc_names:
+                continue
+            for interface, value in zip(values.interface_names, values.values):
+                if interface == 'voltage':
+                    self._voltage[name] = float(value)
+                elif interface == 'current':
+                    self._current[name] = float(value)
 
     def _aggregate(self, values):
-        present = [v for v in values if v is not None]
+        if self._source != 'mean':
+            if self._source in values:
+                return values[self._source]
+            # Named ESC has not reported (yet): fall back to the mean rather than going silent.
+        present = list(values.values())
         if not present:
             return None
-        if self._source == 'mean':
-            return sum(present) / len(present)
-        try:
-            idx = int(self._source)
-        except ValueError:
-            return sum(present) / len(present)
-        if 0 <= idx < 4 and values[idx] is not None:
-            return values[idx]
         return sum(present) / len(present)
 
     def _tick(self) -> None:
         voltage = self._aggregate(self._voltage)
         if voltage is None:
-            return  # no WheelFeedback seen yet
+            return  # no ESC telemetry seen yet
         current = self._aggregate(self._current) or 0.0
         msg = BatteryState()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.voltage = float(voltage)
         # ROS convention is negative-when-discharging; VESC current sign varies (regen can flip
-        # it), and elrs_driver reports the magnitude anyway, so pass the pack sum through as-is.
+        # it), and elrs_driver reports the magnitude anyway, so pass the pack value through as-is.
         msg.current = float(current)
         msg.percentage = float('nan')   # state-of-charge not estimated yet
         msg.present = True
@@ -72,7 +85,7 @@ class WheelFeedbackToBattery(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    node = WheelFeedbackToBattery()
+    node = EscTelemetryToBattery()
     try:
         rclpy.spin(node)
     except (KeyboardInterrupt, ExternalShutdownException):

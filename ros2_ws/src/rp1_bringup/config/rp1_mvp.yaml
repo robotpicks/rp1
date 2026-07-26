@@ -1,6 +1,16 @@
 # Robot-specific overrides for the rp1 MVP, layered on top of each package's own defaults
-# (ros2_ws/src/*/config/*.yaml). Edit these once real hardware numbers / CAN setup are known;
-# everything else should keep working via the package defaults.
+# (ros2_ws/src/*/config/*.yaml).
+#
+# The old control_node and bridge_node blocks are gone with those packages. Their settings moved:
+#   track width / wheel radius  -> rp1_controllers.yaml (diff_drive_controller's own parameters)
+#   cmd_vel timeout             -> rp1_controllers.yaml (diff_drive_controller cmd_vel_timeout)
+#   can_iface, node_id          -> rp1_hardware_interface/urdf/rp1_drive.urdf
+#
+# That last one is a real constraint rather than a preference: ros2_control reads hardware
+# parameters from the <hardware> block of the robot description only, so a CAN interface name
+# cannot be overridden from a node parameter file the way bridge_node's could. Change it in the
+# URDF. To run with no CAN hardware at all, launch with use_mock:=true, which swaps the plugin
+# for mock_components/GenericSystem (this replaced bridge_node's require_can:=false dry run).
 
 teleop_node:
   ros__parameters:
@@ -10,14 +20,3 @@ elrs_driver:               # the generic CRSF driver from the elrs_ros submodule
   ros__parameters:
     serial_port: /dev/ttyUSB0  # ELRS receiver's UART (USB adapter, or /dev/ttyAMA0 on a Pi header)
     require_serial: true       # set false to dry-run without the receiver (telemetry logged, no RC)
-
-control_node:
-  ros__parameters:
-    track_width: 0.5        # meters -- set to the real distance between left/right wheels
-    max_wheel_speed: 1.0    # m/s at the wheel that should map to full WheelCommand output
-
-bridge_node:
-  ros__parameters:
-    can_iface: can0
-    dronecan_node_id: 42
-    require_can: true       # set false to dry-run the ROS2 pipeline without CAN hardware

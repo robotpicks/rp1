@@ -89,11 +89,12 @@ bridge's `require_can:=false`.
 
 Two levels, from least to most CAN-realistic:
 
-1. `ros2 launch rp1_bringup rp1_mvp_sim.launch.py` -- swaps `rp1_dronecan_bridge` for `rp1_sim`,
+1. `ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true` -- swaps the DroneCAN hardware
+   component for `mock_components/GenericSystem`,
    a pure-ROS2 node with no CAN involved at all. Use this to check the ROS2 graph itself
    (teleop -> control -> odometry/TF) with `ros2 topic echo` or rviz2.
 2. `simulation/` (bonus) -- a virtual CAN interface (`vcan0`) plus a script that pretends to be
-   the 4 VESCs, so the real `rp1_dronecan_bridge` can be exercised (DroneCAN wire format and
+   the 4 VESCs, so the real hardware component can be exercised (DroneCAN wire format and
    all) with zero physical hardware. See `simulation/README.md`.
 
 ## Bring-up order
@@ -105,4 +106,5 @@ Two levels, from least to most CAN-realistic:
 3. Repeat for all 4 wheels.
 4. Bring up the full ROS2 pipeline (`ros2 launch rp1_bringup rp1_mvp.launch.py`), wheels off
    the ground first, with the deadman button held.
-5. On-ground drive test, low speed limits first (`rp1_control`'s `max_wheel_speed` param).
+5. On-ground drive test, low speed limits first (cap the teleop `scale_linear`/`scale_angular`
+   in `rp1_teleop`'s config -- there is no separate max_wheel_speed knob any more).
