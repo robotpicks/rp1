@@ -15,9 +15,12 @@ Three checks, because each is a claim the others don't make:
                   in /joint_states. This is the one that would catch a units error: the value
                   survives rad/s -> mechanical RPM -> ERPM -> the sim -> mechanical RPM -> rad/s
                   only if the gear ratio and pole-pair handling agree at both ends.
-  2. telemetry -- expect per-ESC voltage on /dynamic_joint_states. Separate path from the joint
-                  states above (<gpio> state interfaces, not joint interfaces) and the one the
-                  ELRS handset telemetry hangs off, so a joints-only check would miss it break.
+  2. telemetry -- expect a real per-ESC voltage on /dynamic_joint_states. Separate path from the
+                  joint states above (<gpio> state interfaces, not joint interfaces) and the one
+                  the ELRS handset telemetry hangs off, so a joints-only check would miss it
+                  break. This phase is why the checker needs the real hardware component and not
+                  use_mock:=true: mock_components leaves unclaimed gpio states at NaN, whereas
+                  sim_vesc_node reports an actual pack voltage over the wire.
   3. coast     -- stop publishing entirely and expect every wheel back to 0, which exercises
                   diff_drive_controller's cmd_vel_timeout rather than a commanded zero.
 
@@ -28,6 +31,7 @@ Exits 0 if all three pass, 1 with a diagnosis otherwise.
 """
 
 import argparse
+import math
 import sys
 import time
 
@@ -98,7 +102,10 @@ class LoopbackChecker(Node):
         return all(abs(v - target) <= tolerance for v in self._velocity.values())
 
     def telemetry_seen(self) -> bool:
-        return len(self._voltage) == len(ESC_NAMES)
+        # Presence alone is too weak: EscTelemetry.voltage starts at 0.0, so an esc.Status that
+        # stopped decoding would still show up on the topic, at zero. Require a real reading.
+        return (len(self._voltage) == len(ESC_NAMES)
+                and all(math.isfinite(v) and v > 0.0 for v in self._voltage.values()))
 
     def report(self) -> str:
         if not self._velocity:
