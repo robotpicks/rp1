@@ -2,11 +2,15 @@
 
 VESC firmware has a built-in UAVCAN/DroneCAN CAN mode, so **there is no separate bridge MCU**:
 the PC's CAN adapter wires directly to a single CAN bus carrying the 4 VESCs, each configured
-to speak DroneCAN natively. This file is the source of truth both `rp1_hardware_interface`
-(`ros2_ws/src/rp1_hardware_interface/`) and each VESC's UAVCAN config must agree on.
+to speak DroneCAN natively. This file is the source of truth both `rp1_description`'s URDFs and
+each VESC's UAVCAN config must agree on.
+
+The component that speaks the protocol -- `vesc_dronecan_driver`, in the `vesc_dronecan_ros`
+submodule -- is robot-agnostic and imposes **no** id convention of its own; it reads whatever
+`esc_index` / `actuator_id` a joint declares. Everything allocated below is rp1's choice.
 
 ```
-PC (rp1_hardware_interface) --DroneCAN over SocketCAN (can0)--> VESC #1..4 (CAN mode: UAVCAN)
+PC (vesc_dronecan_driver) --DroneCAN over SocketCAN (can0)--> VESC #1..4 (CAN mode: UAVCAN)
 ```
 
 The DroneCAN encoding lives in the ros2_control hardware component's `read()`/`write()`, using a
@@ -18,7 +22,7 @@ is gone. The wire protocol did not change with that move -- only the process tha
 
 | Node                  | DroneCAN node ID |
 |-----------------------|------------------|
-| PC (`rp1_hardware_interface`) | 42 (the `node_id` hardware param in `urdf/rp1_drive.urdf`) |
+| PC (`vesc_dronecan_driver`) | 42 (the `node_id` hardware param in `urdf/rp1_drive.urdf`) |
 | VESC front-left       | TBD -- set via VESC Tool's UAVCAN page, must be unique on the bus |
 | VESC front-right      | TBD |
 | VESC rear-left        | TBD |
@@ -42,7 +46,7 @@ Messages used:
 | PC -> VESC | `handle_esc_rpm_command()`: `mc_interface_set_pid_speed(rpm_val)`, no scaling | ERPM (electrical) |
 
 So a value read back from `Status` cannot be commanded verbatim -- it is off by the pole-pair
-count. `rp1_hardware_interface` compensates on the command side, gated by the
+count. `vesc_dronecan_driver` compensates on the command side, gated by the
 `command_rpm_is_erpm` hardware parameter (default `true`, matching the firmware as it stands).
 If the fork is ever fixed to scale the command side too, set that parameter `false` and the
 extra factor drops out. `esc.RawCommand` (duty cycle) is no longer used by the runtime path.
@@ -63,7 +67,7 @@ ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` thro
 
 Each VESC's `esc_index` (set in VESC Tool, not its DroneCAN node ID) must match this table, and
 must match the `esc_index` parameter on the corresponding joint in
-`rp1_hardware_interface/urdf/rp1_drive.urdf`. There is no separate translation layer -- the URDF
+`rp1_description/urdf/rp1_drive.urdf`. There is no separate translation layer -- the URDF
 joint carries the index directly.
 
 ## VESC UAVCAN configuration (one-off, per VESC, via VESC Tool over USB)
@@ -124,7 +128,7 @@ Only wheels 1 and 2's steering (`actuator_id` 5 and 6) are wired up on the bench
 - Real position control needs an encoder wired to the steering VESC (`mc_interface_set_pid_pos`
   requires FOC position feedback); none of the bench steering VESCs have one yet, so position
   values currently reflect FOC fighting phantom feedback, not real steering angle.
-- `ros2_ws/src/rp1_hardware_interface` handles this through the same `Rp1Hardware` component as
+- `vesc_dronecan_driver` handles this through the same `VescDroneCanSystem` component as
   the drive wheels: a joint declaring `actuator_id` is a steering actuator (position command),
   one declaring `esc_index` is a drive wheel (velocity command). The MVP description
   (`urdf/rp1_drive.urdf`) deliberately contains drive joints only -- including steering joints

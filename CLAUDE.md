@@ -17,7 +17,7 @@ Communication architecture (PC → robot):
 [ExpressLRS radio] --CRSF/UART--> elrs_driver ----->--joy--> rp1_teleop -> /cmd_vel (TwistStamped)
         -> diff_drive_controller (skid-steer kinematics + odometry, stock ros2_controllers)
         -> ros2_control velocity command interfaces
-        -> rp1_hardware_interface (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
+        -> vesc_dronecan_driver (DroneCAN over SocketCAN, e.g. a CANable/candleLight adapter)
         -> VESC #1-4 (CAN mode: VESC+UAVCAN) -> motors
 ```
 
@@ -38,7 +38,7 @@ configs.
 Build both together with `robotpicks.sh build rp1`, or point colcon at both trees:
 `colcon build --base-paths src ../../elrs_ros`.
 
-- **DroneCAN is the runtime transport** from the PC to the robot (via `rp1_hardware_interface`).
+- **DroneCAN is the runtime transport** from the PC to the robot (via `vesc_dronecan_driver`).
 - **There is no separate bridge MCU.** VESC firmware has a built-in UAVCAN/DroneCAN CAN mode,
   so the PC's CAN adapter wires directly to a single bus carrying the 4 VESCs. (An earlier plan
   revision assumed a custom-firmware bridge MCU translating DroneCAN↔VESC-CAN; that's been
@@ -134,7 +134,7 @@ them.
 - `ros2_ws/src/` — colcon workspace, one package per pipeline stage (see below).
 - `docs/can_id_map.md` — the source of truth for DroneCAN node IDs, the wheel-index ↔
   `esc_index` mapping, and the firmware's ERPM/mechanical-RPM asymmetry.
-  `rp1_hardware_interface`'s URDF and each VESC's UAVCAN config (set via VESC Tool) must agree
+  `rp1_description`'s URDF and each VESC's UAVCAN config (set via VESC Tool) must agree
   with this file.
 - `docs/wiring.md` — bus wiring, VESC one-off configuration notes, controller pairing, and the
   hardware bring-up order (configure each VESC's UAVCAN settings before sharing the bus; wheels
@@ -146,9 +146,9 @@ them.
 
 ```
 /joy --[rp1_teleop]--> /diff_drive_controller/cmd_vel (TwistStamped)
-     --[diff_drive_controller]--> velocity command interfaces --[rp1_hardware_interface]--> DroneCAN --> VESCs
+     --[diff_drive_controller]--> velocity command interfaces --[vesc_dronecan_driver]--> DroneCAN --> VESCs
                                   /diff_drive_controller/odom + odom->base_link TF
-     VESCs --> DroneCAN --> [rp1_hardware_interface] --> /joint_states, /dynamic_joint_states
+     VESCs --> DroneCAN --> [vesc_dronecan_driver] --> /joint_states, /dynamic_joint_states
 ```
 
 - **`rp1_msgs`** — the only `ament_cmake`/`rosidl` package. Defines `WheelCommand`,
@@ -177,9 +177,13 @@ them.
   driver robot-agnostic — plus rp1's ELRS configs (`config/rp1_elrs.yaml`, `config/joy_elrs.yaml`).
   The full pipeline needs **both** nodes (see `rp1_mvp_elrs.launch.py`). **CRSF only; MAVLink is
   Phase-2** (see the "What this is" note above).
-- **`rp1_hardware_interface`** (`src/rp1_hardware.cpp`, C++) — the ros2_control `SystemInterface`
-  that speaks DroneCAN to the VESCs, using a **vendored copy of libcanard** (`vendor/libcanard/`,
-  the same codec the firmware uses) over a raw non-blocking SocketCAN socket. One component
+- **`vesc_dronecan_driver`** — **not in this repo.** It lives in the `vesc_dronecan_ros`
+  submodule (sibling of rp1 under the `robotpicks` meta repo, same arrangement as `elrs_driver`),
+  because nothing about it is rp1-specific. `src/vesc_dronecan_system.cpp`, C++: the ros2_control
+  `SystemInterface` that speaks DroneCAN to the VESCs, using a **vendored copy of libcanard**
+  (`vendor/libcanard/`, the same codec the firmware uses) over a raw non-blocking SocketCAN
+  socket. What stays here is `rp1_description`, whose URDFs name the plugin and carry rp1's
+  geometry and id assignments. One component
   handles both wheel kinds on one bus and one node ID; which kind a joint is comes from its URDF
   parameters — `esc_index` means a drive wheel (velocity command via `esc.RPMCommand`, feedback
   from `esc.Status`), `actuator_id` means a steering actuator (position command via
@@ -235,7 +239,7 @@ them.
 
 ### Extending to full swerve (steering joints) — not yet started
 
-The hardware half is **already done**: `Rp1Hardware` handles `actuator.ArrayCommand`/`Status`
+The hardware half is **already done**: `VescDroneCanSystem` handles `actuator.ArrayCommand`/`Status`
 and reads its joint list from the URDF, so going from 2 to 4 steering actuators is a URDF edit,
 not a code change. What is missing is the controller: **ros2_controllers has no swerve
 controller** (`steering_controllers_library` covers Ackermann/bicycle/tricycle, not swerve), so
