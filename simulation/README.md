@@ -1,11 +1,13 @@
 # Bonus: DroneCAN-level simulation (no hardware, but real DroneCAN wire traffic)
 
-`rp1_sim` (the ROS2 package) is the primary way to check the ROS2 architecture with zero
-hardware -- see the top-level README and `docs/wiring.md`. This directory is a step below that:
-it lets you run the **real** ROS2/DroneCAN stack (`rp1_hardware_interface` for the 4 drive wheels,
-`rp1_hardware_interface` for the steering actuators -- actual DroneCAN framing over a CAN bus)
-against software stand-ins for the VESCs, using a Linux virtual CAN interface instead of a
-physical adapter.
+`rp1_mvp.launch.py use_mock:=true` is the primary way to check the ROS2 architecture with zero
+hardware -- see the top-level README and `docs/wiring.md`. It stops at the hardware boundary
+though: `mock_components/GenericSystem` loops commands back to states, so nothing below
+`rp1_hardware_interface` is exercised at all.
+
+This directory is that missing step: it runs the **real** `rp1_hardware_interface` -- actual
+DroneCAN framing over a CAN bus, both drive wheels and steering actuators -- against software
+stand-ins for the VESCs, using a Linux virtual CAN interface instead of a physical adapter.
 
 ## One-time setup: `vcan0`
 
@@ -41,9 +43,16 @@ Then drive it like real hardware: publish a `geometry_msgs/TwistStamped` to
 should start showing plausible rpm/voltage/current once `sim_vesc_node.py` receives commands.
 
 `check_dronecan_loopback.py` is the assertion half, usable on its own against an already-running
-pair. It publishes a known `WheelCommand` and checks the rpm that comes back, then stops
-publishing and checks the bridge's command-timeout failsafe returns the wheels to zero — so it
-fails if telemetry never arrives, arrives at the wrong scale, or latches the last command.
+pair. It publishes a known `TwistStamped`, checks the wheel velocity that comes back in
+`/joint_states`, checks per-ESC voltage reaches `/dynamic_joint_states`, then stops publishing and
+checks `diff_drive_controller`'s `cmd_vel_timeout` returns the wheels to zero — so it fails if
+telemetry never arrives, arrives at the wrong scale, or latches the last command.
+
+The scale check is the interesting one: the commanded speed only survives the round trip
+(rad/s → mechanical RPM → ERPM → `sim_vesc_node` → mechanical RPM → rad/s) if `motor_pole_pairs`
+in `rp1_drive.urdf` matches `sim_vesc_node.py --pole-pairs`. Both default to 7. Run this against
+the real hardware component, not `use_mock:=true` — mock leaves the ESC telemetry at NaN and the
+voltage phase will (correctly) fail.
 
 ## Run: steering actuators (`rp1_hardware_interface`)
 
