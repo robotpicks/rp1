@@ -36,11 +36,29 @@
         <mesh filename="package://rp1_description/meshes/chassis.stl"/>
       </geometry>
     </visual>
+    <!-- Box approximation, not the detailed mesh: a 40MB concave compound of hundreds of
+         parts (suspension, gearboxes, batteries...) is a bad collision/physics shape --
+         slow at best, unstable at worst. Sized from the CAD's own chassis bounding box
+         (tools/export_urdf_meshes.py), not measured/tuned. -->
     <collision>
+      <origin xyz="-0.007 0 0.740" rpy="0 0 0"/>
       <geometry>
-        <mesh filename="package://rp1_description/meshes/chassis.stl"/>
+        <box size="1.016 1.512 1.110"/>
       </geometry>
     </collision>
+    <!-- GUESSED mass/inertia, not measured or CAD-derived -- the CAD has no material/density
+         assigned to any part, so there's no real mass to read off it. Needed only because
+         Gazebo's URDF->SDF conversion silently drops any link with no <inertial> block, and
+         drops everything downstream of it too (base_link is root, so that meant all 4 wheels
+         vanished). 300kg is an order-of-magnitude guess for a steel-framed ag-robot chassis
+         carrying 4x 12V 135Ah batteries (~35-40kg each); inertia is a solid-box approximation
+         using the collision box dimensions above. Replace with real weighed/measured values
+         before trusting simulated dynamics (acceleration, tipping, torque) for anything. -->
+    <inertial>
+      <origin xyz="-0.007 0 0.740" rpy="0 0 0"/>
+      <mass value="300.0"/>
+      <inertia ixx="87.95" ixy="0" ixz="0" iyy="56.61" iyz="0" izz="82.96"/>
+    </inertial>
   </link>
 
   <!-- Drive wheels. esc_index is the value set on that VESC's "UAVCAN ESC index" field in VESC
@@ -51,11 +69,23 @@
         <mesh filename="package://rp1_description/meshes/wheel_front_left.stl"/>
       </geometry>
     </visual>
+    <!-- Cylinder approximation (radius/width from the CAD wheel bbox), not the detailed
+         hub-motor mesh -- see base_link's collision comment. rpy rotates the cylinder's
+         local Z (its default axis) onto the wheel's spin axis, Y. -->
     <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://rp1_description/meshes/wheel_front_left.stl"/>
+        <cylinder radius="0.2154" length="0.1549"/>
       </geometry>
     </collision>
+    <!-- GUESSED mass/inertia -- see base_link's inertial comment; same reasoning, same
+         caveats. 15kg is an order-of-magnitude guess for a ~430mm hub-motor wheel unit;
+         inertia is a solid-cylinder approximation about the spin axis (Y, so no rotation
+         needed here unlike the collision cylinder above). -->
+    <inertial>
+      <mass value="15.0"/>
+      <inertia ixx="0.204034" ixy="0" ixz="0" iyy="0.3481" iyz="0" izz="0.204034"/>
+    </inertial>
   </link>
   <joint name="drive_front_left" type="continuous">
     <parent link="base_link"/>
@@ -71,10 +101,16 @@
       </geometry>
     </visual>
     <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://rp1_description/meshes/wheel_front_right.stl"/>
+        <cylinder radius="0.2154" length="0.1549"/>
       </geometry>
     </collision>
+    <!-- GUESSED mass/inertia -- see base_link's inertial comment. -->
+    <inertial>
+      <mass value="15.0"/>
+      <inertia ixx="0.204034" ixy="0" ixz="0" iyy="0.3481" iyz="0" izz="0.204034"/>
+    </inertial>
   </link>
   <joint name="drive_front_right" type="continuous">
     <parent link="base_link"/>
@@ -90,10 +126,16 @@
       </geometry>
     </visual>
     <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://rp1_description/meshes/wheel_rear_left.stl"/>
+        <cylinder radius="0.2154" length="0.1549"/>
       </geometry>
     </collision>
+    <!-- GUESSED mass/inertia -- see base_link's inertial comment. -->
+    <inertial>
+      <mass value="15.0"/>
+      <inertia ixx="0.204034" ixy="0" ixz="0" iyy="0.3481" iyz="0" izz="0.204034"/>
+    </inertial>
   </link>
   <joint name="drive_rear_left" type="continuous">
     <parent link="base_link"/>
@@ -109,10 +151,16 @@
       </geometry>
     </visual>
     <collision>
+      <origin xyz="0 0 0" rpy="1.5708 0 0"/>
       <geometry>
-        <mesh filename="package://rp1_description/meshes/wheel_rear_right.stl"/>
+        <cylinder radius="0.2154" length="0.1549"/>
       </geometry>
     </collision>
+    <!-- GUESSED mass/inertia -- see base_link's inertial comment. -->
+    <inertial>
+      <mass value="15.0"/>
+      <inertia ixx="0.204034" ixy="0" ixz="0" iyy="0.3481" iyz="0" izz="0.204034"/>
+    </inertial>
   </link>
   <joint name="drive_rear_right" type="continuous">
     <parent link="base_link"/>
