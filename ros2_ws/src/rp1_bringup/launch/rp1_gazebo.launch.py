@@ -13,6 +13,15 @@ mesh would be a slow/unstable physics collision shape. Don't swap that back with
 
 Requires ros-lyrical-gz-ros2-control (not part of a stock ROS2 desktop install; installed via
 apt in this sandbox, not rosdep -- see rp1_bringup/package.xml).
+
+keyboard:=true starts teleop_twist_keyboard instead of joy_node/rp1_teleop, remapped straight to
+/diff_drive_controller/cmd_vel (it publishes TwistStamped itself via its own stamped:=true param,
+so it doesn't need rp1_teleop as a translator the way a joystick's Joy messages do). Pass
+teleop:=false alongside it -- both would otherwise publish to the same topic. This MUST be run
+from a real interactive terminal you're typing into directly: it reads raw keypresses via
+termios, which needs an actual foreground tty. Launching it from an automation/background
+context (a CI job, a detached/backgrounded `ros2 launch`, an assistant's tool call) gives it no
+real keyboard to read from, so it will start but never receive input.
 """
 
 import os
@@ -123,6 +132,11 @@ def generate_launch_description():
             description='Start joy_node + teleop_node. false leaves '
                         '/diff_drive_controller/cmd_vel free for another publisher'),
         DeclareLaunchArgument(
+            'keyboard', default_value='false',
+            description='Start teleop_twist_keyboard instead. Pass teleop:=false alongside '
+                        'this -- both publish to the same topic. Needs a real foreground '
+                        'terminal (see module docstring); does nothing if backgrounded.'),
+        DeclareLaunchArgument(
             'world', default_value='empty.sdf', description='Gazebo world SDF to load'),
 
         set_gz_resource_path,
@@ -182,6 +196,16 @@ def generate_launch_description():
             remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel')],
             output='screen',
             condition=IfCondition(LaunchConfiguration('teleop')),
+        ),
+        Node(
+            package='teleop_twist_keyboard',
+            executable='teleop_twist_keyboard',
+            name='teleop_twist_keyboard',
+            output='screen',
+            emulate_tty=True,
+            parameters=[{'stamped': True, 'frame_id': 'base_link'}],
+            remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel')],
+            condition=IfCondition(LaunchConfiguration('keyboard')),
         ),
 
         # Same rationale as rp1_mvp.launch.py: spawn joint_state_broadcaster first and only
