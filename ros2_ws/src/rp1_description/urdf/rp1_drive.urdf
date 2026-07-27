@@ -7,12 +7,13 @@
   rp1-mechanical submodule, measured directly off the ZLLG16ASM800 hub-motor placements in
   UZM.08.13.300.00.FCStd -- docs/mechanical_request.{pdf,xlsx}'s §3.1/§3.3.2 tables are still
   blank (nobody from mechanical design has filled them in), so this is the first real number,
-  not a placeholder round number, but it is CAD-nominal, not a measured/loaded rolling radius,
-  and which end of the (front-back- and left-right-symmetric) chassis is "front"/"left" was an
-  arbitrary pick in that script (FRONT_IS_POSITIVE_CAD_Z / LEFT_IS_POSITIVE_CAD_X) -- confirm
-  both against the physical robot before relying on this for anything safety-relevant. Update
-  here AND in rp1_bringup/config/rp1_controllers.yaml (diff_drive_controller takes
-  wheel_separation and wheel_radius as its own parameters, it does not read them from this file).
+  not a placeholder round number, but it is CAD-nominal, not a measured/loaded rolling radius.
+  The chassis has no geometric front-back or left-right distinction (checked: controls are
+  mounted symmetrically left/right, payload bay is centred) -- FRONT_IS_POSITIVE_CAD_Z /
+  LEFT_IS_POSITIVE_CAD_X in that script are a confirmed (2026-07-28) but arbitrary convention,
+  not something derived from the physical robot. Update here AND in
+  rp1_bringup/config/rp1_controllers.yaml (diff_drive_controller takes wheel_separation and
+  wheel_radius as its own parameters, it does not read them from this file).
 
   base_link is at the ground projection of the geometric centre of the four wheel contact
   patches, X forward / Y left / Z up (REP-103). The CAD is modelled +Y-up (confirmed by
