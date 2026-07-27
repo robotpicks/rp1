@@ -108,6 +108,7 @@ def generate_launch_description():
     bringup_share = get_package_share_directory('rp1_bringup')
     bringup_config = os.path.join(bringup_share, 'config', 'rp1_mvp.yaml')
     controllers_config = os.path.join(bringup_share, 'config', 'rp1_controllers.yaml')
+    rviz_config = os.path.join(bringup_share, 'rviz', 'rp1_bringup.rviz')
 
     teleop_config = os.path.join(
         get_package_share_directory('rp1_teleop'), 'config', 'joy_xbox_series_x.yaml')
@@ -166,6 +167,7 @@ def generate_launch_description():
             package='rviz2',
             executable='rviz2',
             name='rviz2',
+            arguments=['-d', rviz_config],
             output='screen',
             condition=IfCondition(LaunchConfiguration('rviz')),
         ),
