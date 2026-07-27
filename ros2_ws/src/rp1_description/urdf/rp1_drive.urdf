@@ -17,13 +17,38 @@
   handles them (see rp1_steering.urdf), but including them here would broadcast an
   actuator.ArrayCommand every cycle with whatever the unclaimed command interface holds, at
   wheels that have no encoder yet. Add them when the swerve controller exists.
+
+  Meshes and the joint <origin> numbers below come from the rp1-mechanical FreeCAD assembly via
+  tools/export_urdf_meshes.py in that submodule -- re-run it and update both after a CAD change.
 -->
 <robot name="rp1">
-  <link name="base_link"/>
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/chassis.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/chassis.stl"/>
+      </geometry>
+    </collision>
+  </link>
 
   <!-- Drive wheels. esc_index is the value set on that VESC's "UAVCAN ESC index" field in VESC
        Tool; it must match docs/can_id_map.md's wheel index table. -->
-  <link name="wheel_front_left_link"/>
+  <link name="wheel_front_left_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_front_left.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_front_left.stl"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="drive_front_left" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_front_left_link"/>
@@ -31,7 +56,18 @@
     <axis xyz="0 1 0"/>
   </joint>
 
-  <link name="wheel_front_right_link"/>
+  <link name="wheel_front_right_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_front_right.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_front_right.stl"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="drive_front_right" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_front_right_link"/>
@@ -39,7 +75,18 @@
     <axis xyz="0 1 0"/>
   </joint>
 
-  <link name="wheel_rear_left_link"/>
+  <link name="wheel_rear_left_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_rear_left.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_rear_left.stl"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="drive_rear_left" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_rear_left_link"/>
@@ -47,7 +94,18 @@
     <axis xyz="0 1 0"/>
   </joint>
 
-  <link name="wheel_rear_right_link"/>
+  <link name="wheel_rear_right_link">
+    <visual>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_rear_right.stl"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://rp1_description/meshes/wheel_rear_right.stl"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="drive_rear_right" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_rear_right_link"/>
