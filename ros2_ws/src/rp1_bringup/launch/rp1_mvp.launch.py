@@ -14,6 +14,12 @@ docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks i
   `robotpicks.sh smoke dronecan` uses to run this whole pipeline against a virtual bus.
   teleop:=false drops joy_node and teleop_node, leaving /diff_drive_controller/cmd_vel free for
   something else to drive (the smoke check, a nav stack, `ros2 topic pub`).
+  keyboard:=true starts teleop_twist_keyboard instead (pass teleop:=false alongside it -- both
+  publish to the same topic). It publishes TwistStamped itself via its own stamped:=true param,
+  so it doesn't need rp1_teleop as a translator the way a joystick's Joy messages do. This MUST
+  be run from a real interactive terminal you're typing into directly -- it reads raw keypresses
+  via termios, which needs an actual foreground tty; a detached/backgrounded `ros2 launch` gives
+  it nothing to read and it will start but never receive input.
 
 controller_manager in this ROS 2 release takes the robot description from the /robot_description
 TOPIC, not from a parameter -- it logs "Waiting for data on 'robot_description' topic" and
@@ -132,6 +138,11 @@ def generate_launch_description():
             'teleop', default_value='true',
             description='Start joy_node + teleop_node. false leaves '
                         '/diff_drive_controller/cmd_vel free for another publisher'),
+        DeclareLaunchArgument(
+            'keyboard', default_value='false',
+            description='Start teleop_twist_keyboard instead. Pass teleop:=false alongside '
+                        'this -- both publish to the same topic. Needs a real foreground '
+                        'terminal (see module docstring); does nothing if backgrounded.'),
 
         OpaqueFunction(function=_robot_description),
 
@@ -166,6 +177,16 @@ def generate_launch_description():
             remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel')],
             output='screen',
             condition=IfCondition(LaunchConfiguration('teleop')),
+        ),
+        Node(
+            package='teleop_twist_keyboard',
+            executable='teleop_twist_keyboard',
+            name='teleop_twist_keyboard',
+            output='screen',
+            emulate_tty=True,
+            parameters=[{'stamped': True, 'frame_id': 'base_link'}],
+            remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel')],
+            condition=IfCondition(LaunchConfiguration('keyboard')),
         ),
 
         # Controllers are spawned strictly sequentially (TimerAction delay, then chained via
