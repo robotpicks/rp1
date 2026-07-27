@@ -2,16 +2,23 @@
 <!--
   rp1 MVP description: the 4 drive wheels, skid-steer, no steering joints.
 
-  GEOMETRY IS PLACEHOLDER. track width 0.5 m, wheelbase 0.5 m, wheel radius 0.1 m are the same
-  round numbers the old rp1_control/rp1_sim configs carried, kept only so the tree is
-  well-formed. Real values are what docs/mechanical_request.{pdf,xlsx} asks mechanical design
-  for -- §3.1 for the wheel layout, §3.3.2 for the loaded rolling radius. Update here AND in
-  rp1_bringup/config/rp1_controllers.yaml (diff_drive_controller takes wheel_separation and
-  wheel_radius as its own parameters, it does not read them from this file).
+  GEOMETRY IS FROM THE CAD, NOT YET CONFIRMED BY MECHANICAL DESIGN. track width ~1.139 m,
+  wheelbase ~0.8 m, wheel radius ~0.215 m come from tools/export_urdf_meshes.py in the
+  rp1-mechanical submodule, measured directly off the ZLLG16ASM800 hub-motor placements in
+  UZM.08.13.300.00.FCStd -- docs/mechanical_request.{pdf,xlsx}'s §3.1/§3.3.2 tables are still
+  blank (nobody from mechanical design has filled them in), so this is the first real number,
+  not a placeholder round number, but it is CAD-nominal, not a measured/loaded rolling radius,
+  and which end of the (front-back- and left-right-symmetric) chassis is "front"/"left" was an
+  arbitrary pick in that script (FRONT_IS_POSITIVE_CAD_Z / LEFT_IS_POSITIVE_CAD_X) -- confirm
+  both against the physical robot before relying on this for anything safety-relevant. Update
+  here AND in rp1_bringup/config/rp1_controllers.yaml (diff_drive_controller takes
+  wheel_separation and wheel_radius as its own parameters, it does not read them from this file).
 
   base_link is at the ground projection of the geometric centre of the four wheel contact
-  patches, X forward / Y left / Z up (REP-103) -- the convention §1 of the mechanical request
-  asks mechanical design to confirm.
+  patches, X forward / Y left / Z up (REP-103). The CAD is modelled +Y-up (confirmed by
+  measuring the actual hub-motor positions, not assumed) -- export_urdf_meshes.py's CAD_TO_ROS
+  rotation accounts for that; §1 of the mechanical request still asks mechanical design to
+  confirm the frame convention independently.
 
   Steering actuators are deliberately NOT in this description: the same VescDroneCanSystem component
   handles them (see rp1_steering.urdf), but including them here would broadcast an
@@ -52,7 +59,7 @@
   <joint name="drive_front_left" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_front_left_link"/>
-    <origin xyz="0.25 0.25 0.1" rpy="0 0 0"/>
+    <origin xyz="0.399903 0.569306 0.215396" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -71,7 +78,7 @@
   <joint name="drive_front_right" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_front_right_link"/>
-    <origin xyz="0.25 -0.25 0.1" rpy="0 0 0"/>
+    <origin xyz="0.400097 -0.569306 0.215396" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -90,7 +97,7 @@
   <joint name="drive_rear_left" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_rear_left_link"/>
-    <origin xyz="-0.25 0.25 0.1" rpy="0 0 0"/>
+    <origin xyz="-0.400097 0.569306 0.215396" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 
@@ -109,7 +116,7 @@
   <joint name="drive_rear_right" type="continuous">
     <parent link="base_link"/>
     <child link="wheel_rear_right_link"/>
-    <origin xyz="-0.25 -0.25 0.1" rpy="0 0 0"/>
+    <origin xyz="-0.399903 -0.569306 0.215396" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
   </joint>
 

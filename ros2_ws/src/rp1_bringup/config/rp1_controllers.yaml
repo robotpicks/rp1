@@ -40,11 +40,12 @@ diff_drive_controller:
       - drive_front_right
       - drive_rear_right
 
-    # PLACEHOLDER geometry, same round numbers the retired rp1_control config carried.
-    # wheel_separation is the track width (§3.1.1/§3.1.2 of docs/mechanical_request.pdf) and
-    # wheel_radius is the LOADED rolling radius (§3.3.2), not the unloaded one.
-    wheel_separation: 0.5
-    wheel_radius: 0.1
+    # From the CAD (tools/export_urdf_meshes.py in rp1-mechanical), not yet confirmed by
+    # mechanical design -- docs/mechanical_request.pdf's §3.1.1/§3.1.2/§3.3.2 tables are still
+    # blank. wheel_separation is the track width; wheel_radius here is CAD-nominal, not a
+    # measured LOADED rolling radius (§3.3.2 asks for the latter specifically).
+    wheel_separation: 1.138612
+    wheel_radius: 0.215396
 
     # The drive VESCs report speed (esc.Status.rpm), not an absolute encoder count -- the wheel
     # position in /joint_states is integrated from that. Odometry must therefore run on the

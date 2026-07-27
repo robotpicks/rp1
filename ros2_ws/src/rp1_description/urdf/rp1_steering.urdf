@@ -3,14 +3,27 @@
   <!-- Minimal skeleton -- just enough links/joints for ros2_control to load the two currently
        bench-wired steering actuators (see docs/can_id_map.md's +4 steering-index convention:
        front-right drive=1 -> steering=5, rear-left drive=2 -> steering=6). Not a real physical
-       description of the robot; rp1 has no full URDF yet. -->
+       description of the robot; rp1 has no full URDF yet.
+
+       Joint origins are from the CAD (tools/export_urdf_meshes.py in the rp1-mechanical
+       submodule), not yet confirmed by mechanical design: the pivot is the mean position of
+       each corner's steering bearings + spur gears, which sit tightly on the real shaft
+       centreline -- NOT the corner's own CAD reference point, which is ~37mm off of it. The
+       height (~1.22m above base_link) looks large but matches the rest of the geometry: this
+       is a portal-style corner leg, with the steering motor/gearbox mounted up near the
+       chassis and a long shaft down to the wheel (see rp1_drive.urdf's wheel joints, ~0.22m
+       above base_link). The motor drives the shaft through a 4:1 spur gear reduction (20T
+       pinion -> 80T gear, confirmed identical at all 4 corners) -- noted for reference only,
+       since vesc_dronecan_system.cpp doesn't apply any gear_ratio to actuator position
+       commands (that hardware param is drive-only). Front/rear and left/right are the same
+       arbitrary CAD-symmetry pick as rp1_drive.urdf's -- see that file's header. -->
   <link name="base_link"/>
 
   <link name="steering_front_right_link"/>
   <joint name="steering_front_right" type="continuous">
     <parent link="base_link"/>
     <child link="steering_front_right_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="0.400000 -0.640000 1.221896" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
   </joint>
 
@@ -18,7 +31,7 @@
   <joint name="steering_rear_left" type="continuous">
     <parent link="base_link"/>
     <child link="steering_rear_left_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <origin xyz="-0.400000 0.640000 1.221896" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
   </joint>
 
