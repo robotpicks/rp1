@@ -18,8 +18,17 @@ docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks i
   publish to the same topic). It publishes TwistStamped itself via its own stamped:=true param,
   so it doesn't need rp1_teleop as a translator the way a joystick's Joy messages do. This MUST
   be run from a real interactive terminal you're typing into directly -- it reads raw keypresses
-  via termios, which needs an actual foreground tty; a detached/backgrounded `ros2 launch` gives
-  it nothing to read and it will start but never receive input.
+  via termios, which needs an actual foreground tty; a detached/backgrounded `ros2 launch` has no
+  controlling tty and it crashes immediately with `termios.error: (25, 'Inappropriate ioctl for
+  device')` -- confirmed 2026-07-28, not a silent no-op as you might expect.
+
+  Also confirmed 2026-07-28 (an end-to-end test, not just launch-file inspection): a
+  teleop_twist_keyboard instance with a real controlling tty does drive the robot correctly
+  through this launch file (with use_mock:=true, odometry moved under simulated keypresses). If
+  keyboard input seems to do nothing, the most common cause isn't this wiring -- it's OS window
+  focus: teleop_twist_keyboard reads from its own terminal's stdin, not from whatever window has
+  focus, so clicking some other window (e.g. rviz2, if rviz:=true) and typing there sends
+  keystrokes there, not to the teleop node. Click the terminal actually running `ros2 launch`.
 
 controller_manager in this ROS 2 release takes the robot description from the /robot_description
 TOPIC, not from a parameter -- it logs "Waiting for data on 'robot_description' topic" and

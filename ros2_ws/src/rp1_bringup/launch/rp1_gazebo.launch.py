@@ -21,7 +21,16 @@ teleop:=false alongside it -- both would otherwise publish to the same topic. Th
 from a real interactive terminal you're typing into directly: it reads raw keypresses via
 termios, which needs an actual foreground tty. Launching it from an automation/background
 context (a CI job, a detached/backgrounded `ros2 launch`, an assistant's tool call) gives it no
-real keyboard to read from, so it will start but never receive input.
+controlling tty, and it crashes immediately with `termios.error: (25, 'Inappropriate ioctl for
+device')` -- confirmed 2026-07-28, not a silent no-op as you might expect.
+
+Also confirmed 2026-07-28 (a real end-to-end test, not just launch-file inspection): a
+teleop_twist_keyboard instance with a real controlling tty does drive the simulated robot
+correctly through this launch file (odometry moved under simulated keypresses). If keyboard
+input seems to do nothing, the most common cause isn't this wiring -- it's OS window focus:
+teleop_twist_keyboard reads from its own terminal's stdin, not from whatever window has focus,
+so clicking the Gazebo window and typing there sends keystrokes to Gazebo, not to the teleop
+node. Click the terminal actually running `ros2 launch` instead.
 """
 
 import os
