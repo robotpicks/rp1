@@ -179,6 +179,19 @@ Real DroneCAN framing against a virtual bus (this is what CI runs):
 `use_mock:=true` stops at the hardware boundary — it exercises the controller stack but nothing
 below `vesc_dronecan_driver`. The vcan route covers that last layer. See `simulation/README.md`.
 
+### Gazebo
+
+Full physics via `gz_ros2_control` — needs `ros-lyrical-gz-ros2-control` (apt, not part of a
+stock ROS2 desktop install):
+
+```bash
+ros2 launch rp1_bringup rp1_gazebo.launch.py teleop:=false                      # no input yet
+ros2 launch rp1_bringup rp1_gazebo.launch.py teleop:=false rviz:=true           # + rviz
+ros2 launch rp1_bringup rp1_gazebo.launch.py teleop:=false keyboard:=true       # i/j/k/l in
+    # that terminal (needs a real foreground tty; run it yourself, not backgrounded)
+ros2 launch rp1_bringup rp1_gazebo.launch.py teleop:=false rqt_steering:=true   # mouse sliders
+```
+
 ## Status
 
 MVP scaffold in progress — see `docs/wiring.md` for the bring-up sequence (configure each
