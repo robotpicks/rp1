@@ -165,6 +165,9 @@ Whole stack, no CAN — swaps in ros2_control's mock hardware:
 ```bash
 ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true
 ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true rviz:=true   # + odometry/TF in rviz
+ros2 launch rp1_bringup rp1_mvp.launch.py use_mock:=true teleop:=false rqt_steering:=true
+    # mouse-driven slider GUI instead of the Xbox pad -- teleop:=false is required, both
+    # publish to the same /cmd_vel topic
 ```
 
 Real DroneCAN framing against a virtual bus (this is what CI runs):
