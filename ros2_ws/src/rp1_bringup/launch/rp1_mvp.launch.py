@@ -29,6 +29,9 @@ docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks i
   focus: teleop_twist_keyboard reads from its own terminal's stdin, not from whatever window has
   focus, so clicking some other window (e.g. rviz2, if rviz:=true) and typing there sends
   keystrokes there, not to the teleop node. Click the terminal actually running `ros2 launch`.
+  rqt_steering:=true starts rqt_robot_steering (mouse-driven slider GUI) instead -- pass
+  teleop:=false alongside it. Its own window, not a panel inside rviz. Natively supports
+  TwistStamped (default_stamped param, set true below), so it needs no translator either.
 
 controller_manager in this ROS 2 release takes the robot description from the /robot_description
 TOPIC, not from a parameter -- it logs "Waiting for data on 'robot_description' topic" and
@@ -153,6 +156,10 @@ def generate_launch_description():
             description='Start teleop_twist_keyboard instead. Pass teleop:=false alongside '
                         'this -- both publish to the same topic. Needs a real foreground '
                         'terminal (see module docstring); does nothing if backgrounded.'),
+        DeclareLaunchArgument(
+            'rqt_steering', default_value='false',
+            description='Start rqt_robot_steering (mouse-driven slider GUI) instead. Pass '
+                        'teleop:=false alongside this -- both publish to the same topic.'),
 
         OpaqueFunction(function=_robot_description),
 
@@ -198,6 +205,17 @@ def generate_launch_description():
             parameters=[{'stamped': True, 'frame_id': 'base_link'}],
             remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel')],
             condition=IfCondition(LaunchConfiguration('keyboard')),
+        ),
+        Node(
+            package='rqt_robot_steering',
+            executable='rqt_robot_steering',
+            name='rqt_robot_steering',
+            output='screen',
+            parameters=[{
+                'default_topic': '/diff_drive_controller/cmd_vel',
+                'default_stamped': True,
+            }],
+            condition=IfCondition(LaunchConfiguration('rqt_steering')),
         ),
 
         # Controllers are spawned strictly sequentially (TimerAction delay, then chained via

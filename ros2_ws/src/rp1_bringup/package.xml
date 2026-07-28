@@ -11,6 +11,7 @@
 
   <exec_depend>joy</exec_depend>
   <exec_depend>teleop_twist_keyboard</exec_depend>
+  <exec_depend>rqt_robot_steering</exec_depend>
   <exec_depend>rp1_teleop</exec_depend>
   <exec_depend>rp1_elrs</exec_depend>
   <exec_depend>vesc_dronecan_driver</exec_depend>

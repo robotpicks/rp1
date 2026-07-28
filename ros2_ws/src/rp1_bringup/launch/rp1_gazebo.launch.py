@@ -31,6 +31,12 @@ input seems to do nothing, the most common cause isn't this wiring -- it's OS wi
 teleop_twist_keyboard reads from its own terminal's stdin, not from whatever window has focus,
 so clicking the Gazebo window and typing there sends keystrokes to Gazebo, not to the teleop
 node. Click the terminal actually running `ros2 launch` instead.
+
+rqt_steering:=true starts rqt_robot_steering -- a mouse-driven slider GUI, for driving without a
+keyboard or joystick. It's a separate small window (the rqt framework), not a panel docked
+inside rviz itself -- a native rviz panel would be a whole separate C++ plugin package. It
+natively supports TwistStamped (its own default_stamped param, defaulted true below) so, like
+keyboard_teleop, needs no translator node. Pass teleop:=false alongside it.
 """
 
 import os
@@ -147,6 +153,10 @@ def generate_launch_description():
                         'this -- both publish to the same topic. Needs a real foreground '
                         'terminal (see module docstring); does nothing if backgrounded.'),
         DeclareLaunchArgument(
+            'rqt_steering', default_value='false',
+            description='Start rqt_robot_steering (mouse-driven slider GUI) instead. Pass '
+                        'teleop:=false alongside this -- both publish to the same topic.'),
+        DeclareLaunchArgument(
             'world', default_value='empty.sdf', description='Gazebo world SDF to load'),
 
         set_gz_resource_path,
@@ -217,6 +227,17 @@ def generate_launch_description():
             parameters=[{'stamped': True, 'frame_id': 'base_link'}],
             remappings=[('cmd_vel', '/diff_drive_controller/cmd_vel')],
             condition=IfCondition(LaunchConfiguration('keyboard')),
+        ),
+        Node(
+            package='rqt_robot_steering',
+            executable='rqt_robot_steering',
+            name='rqt_robot_steering',
+            output='screen',
+            parameters=[{
+                'default_topic': '/diff_drive_controller/cmd_vel',
+                'default_stamped': True,
+            }],
+            condition=IfCondition(LaunchConfiguration('rqt_steering')),
         ),
 
         # Same rationale as rp1_mvp.launch.py: spawn joint_state_broadcaster first and only
