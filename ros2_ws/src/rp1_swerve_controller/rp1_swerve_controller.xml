@@ -1,0 +1,13 @@
+<library path="rp1_swerve_controller">
+  <class name="rp1_swerve_controller/RP1SwerveController"
+         type="rp1_swerve_controller::RP1SwerveController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>
+      Swerve-drive controller for rp1: claims 4 drive velocity command interfaces and 4 steering
+      position command interfaces (named via the drive_joints/steering_joints parameters),
+      subscribes geometry_msgs/TwistStamped on ~/cmd_vel. Skeleton stage -- update() does not yet
+      compute swerve inverse kinematics or the 0/90-locked and 2-wheel operating modes from
+      rp1-specs/requirements.md; see the package README for status.
+    </description>
+  </class>
+</library>
