@@ -256,5 +256,8 @@ positions are meaningless" state -- confirm this is actually wired up on the ben
 trusting reported steering angle, since this is a correction to the previously-documented
 state, not yet independently re-verified against hardware. Each steering axis is also getting
 two proximity sensors, at 0° and 90° relative to the robot's direction of travel, to lock/
-reference the steering angle -- mechanism and electrical interface not yet designed (see
-rp1-specs/system_architecture.md's swerve section).
+reference the steering angle -- wired to the steering VESC's ADC1/ADC2 pins as GPIO. The
+steering brake (needed because the 4:1 spur gear reduction doesn't self-lock) is an
+electromagnetic holding brake on the steering motor shaft, commanded via the same VESC's ADC3
+pin through an SSR that switches its 24V coil supply -- see rp1-specs/electrical_spec.md and
+rp1-specs/requirements.md for the full writeup.
