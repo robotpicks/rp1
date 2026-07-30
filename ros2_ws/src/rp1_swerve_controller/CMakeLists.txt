@@ -9,6 +9,7 @@ find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 
 add_library(rp1_swerve_controller SHARED
@@ -31,6 +32,7 @@ target_link_libraries(rp1_swerve_controller PUBLIC
   tf2_ros::tf2_ros
   ${geometry_msgs_TARGETS}
   ${nav_msgs_TARGETS}
+  ${std_msgs_TARGETS}
 )
 
 pluginlib_export_plugin_description_file(controller_interface rp1_swerve_controller.xml)
@@ -48,7 +50,7 @@ install(FILES rp1_swerve_controller.xml DESTINATION share/${PROJECT_NAME})
 ament_export_include_directories(include)
 ament_export_libraries(rp1_swerve_controller)
 ament_export_targets(export_rp1_swerve_controller)
-ament_export_dependencies(controller_interface pluginlib rclcpp rclcpp_lifecycle realtime_tools geometry_msgs nav_msgs tf2_ros)
+ament_export_dependencies(controller_interface pluginlib rclcpp rclcpp_lifecycle realtime_tools geometry_msgs nav_msgs std_msgs tf2_ros)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

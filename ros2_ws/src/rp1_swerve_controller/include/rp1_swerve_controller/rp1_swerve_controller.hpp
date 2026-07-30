@@ -2,6 +2,7 @@
 #define RP1_SWERVE_CONTROLLER__RP1_SWERVE_CONTROLLER_HPP_
 
 #include <array>
+#include <atomic>
 #include <memory>
 #include <string>
 #include <utility>
@@ -15,6 +16,7 @@
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_publisher.hpp"
 #include "realtime_tools/realtime_thread_safe_box.hpp"
+#include "std_msgs/msg/u_int8.hpp"
 #include "tf2_ros/transform_broadcaster.hpp"
 
 namespace rp1_swerve_controller
@@ -30,6 +32,16 @@ enum CornerIndex : std::size_t
   REAR_RIGHT = 3,
 };
 static constexpr std::size_t NUM_CORNERS = 4;
+
+// Operating modes from rp1-specs/requirements.md's "Why swerve, and what it needs to do".
+// Selected via the ~/mode topic (std_msgs/UInt8) -- see compute_corner_commands().
+enum class SwerveMode : uint8_t
+{
+  FULL_SWERVE = 0,  // all 4 corners independently steered (today's only behavior, unchanged)
+  LOCKED_0 = 1,     // all 4 wheels straight ahead, skid-steer differential from vx+wz; vy dropped
+  LOCKED_90 = 2,    // all 4 wheels perpendicular to travel (pure crab), from vy+wz; vx dropped
+  TWO_WHEEL = 3,    // front 2 corners free-steer (full IK), rear 2 locked at 0 like LOCKED_0
+};
 
 class RP1SwerveController : public controller_interface::ControllerInterface
 {
@@ -78,6 +90,14 @@ protected:
   rclcpp::Subscription<TwistStamped>::SharedPtr cmd_vel_subscriber_;
   realtime_tools::RealtimeThreadSafeBox<std::shared_ptr<TwistStamped>> input_cmd_vel_{nullptr};
 
+  // Mode select, ~/mode (std_msgs/UInt8, SwerveMode's underlying value). A trivially-copyable
+  // POD, so a plain atomic is enough -- no need for the RealtimeThreadSafeBox machinery
+  // input_cmd_vel_ uses for a non-trivial shared_ptr payload. Unrecognized values fall back to
+  // FULL_SWERVE in compute_corner_commands() rather than erroring, since a mode topic is easy to
+  // publish a stray/uninitialized value on.
+  rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
+  std::atomic<uint8_t> mode_{static_cast<uint8_t>(SwerveMode::FULL_SWERVE)};
+
   // Steering-axis geometry, half-dimensions in metres (base_link frame, X forward/Y left) --
   // defaults match the CAD steering-axis positions in rp1-specs/mechanical_spec.md §3.1
   // (wheelbase 0.8 m -> half 0.4; steering-axis track 1.28 m -> half 0.64), NOT the drive-joint
@@ -123,14 +143,17 @@ private:
   // -- NOT a generic solver, would need revisiting if corner_position_ ever became asymmetric.
   void compute_body_twist(double & vx, double & vy, double & wz) const;
 
-  // Swerve inverse kinematics: (vx, vy, wz) -> per-corner wheel speed + steering angle.
-  // Standard rigid-body-twist decomposition per corner, plus the angle-flip optimization
-  // (rotate the wheel <= 90 degrees by allowing negative speed instead of always rotating to the
-  // literal computed angle) against last_steering_angle_ so small cmd_vel changes don't spin a
-  // wheel 180 degrees when reversing direction would be shorter. Does NOT yet implement the
-  // discrete 0/90-locked or 2-wheel operating modes from rp1-specs/requirements.md -- this is
-  // continuous free-angle swerve only; mode switching is a separate, not-yet-designed layer on
-  // top of this. Mutates last_steering_angle_, so not const.
+  // Swerve inverse kinematics: (vx, vy, wz) -> per-corner wheel speed + steering angle, per
+  // mode_. FULL_SWERVE: standard rigid-body-twist decomposition per corner, plus the angle-flip
+  // optimization (rotate the wheel <= 90 degrees by allowing negative speed instead of always
+  // rotating to the literal computed angle) against last_steering_angle_ so small cmd_vel
+  // changes don't spin a wheel 180 degrees when reversing direction would be shorter.
+  // LOCKED_0/LOCKED_90/TWO_WHEEL: affected corners are held at a fixed angle (no flip
+  // optimization -- a "locked" wheel should stay visually fixed, not flip to the opposite angle
+  // with reversed speed even though that's motion-equivalent) and driven by projecting the same
+  // rigid-body-twist vector onto that fixed direction, which is exactly the standard skid-steer
+  // differential-drive formula when the fixed angle is 0. Mutates last_steering_angle_, so not
+  // const.
   void compute_corner_commands(
     const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
     std::array<double, NUM_CORNERS> & steering_angle);

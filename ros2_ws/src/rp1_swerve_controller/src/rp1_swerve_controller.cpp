@@ -110,6 +110,11 @@ controller_interface::CallbackReturn RP1SwerveController::on_configure(
     [this](const std::shared_ptr<TwistStamped> msg)
     { input_cmd_vel_.set([&msg](std::shared_ptr<TwistStamped> & value) { value = msg; }); });
 
+  mode_.store(static_cast<uint8_t>(SwerveMode::FULL_SWERVE));
+  mode_subscriber_ = get_node()->create_subscription<std_msgs::msg::UInt8>(
+    "~/mode", rclcpp::SystemDefaultsQoS(),
+    [this](const std::shared_ptr<std_msgs::msg::UInt8> msg) { mode_.store(msg->data); });
+
   odom_publisher_ = get_node()->create_publisher<nav_msgs::msg::Odometry>(
     "~/odom", rclcpp::SystemDefaultsQoS());
   realtime_odom_publisher_ = std::make_unique<OdomPublisher>(odom_publisher_);
@@ -224,6 +229,16 @@ void RP1SwerveController::compute_corner_commands(
   const double vy = cmd_vel.twist.linear.y;
   const double wz = cmd_vel.twist.angular.z;
 
+  auto mode = static_cast<SwerveMode>(mode_.load());
+  if (mode != SwerveMode::FULL_SWERVE && mode != SwerveMode::LOCKED_0 &&
+      mode != SwerveMode::LOCKED_90 && mode != SwerveMode::TWO_WHEEL)
+  {
+    // Unrecognized value on ~/mode (stray publish, uninitialized field, a future mode this
+    // build doesn't know about) -- fail safe to the one mode that's always geometrically valid
+    // rather than silently doing nothing or crashing on the switch below.
+    mode = SwerveMode::FULL_SWERVE;
+  }
+
   for (std::size_t i = 0; i < NUM_CORNERS; ++i)
   {
     const auto [x_i, y_i] = corner_position_[i];
@@ -232,27 +247,77 @@ void RP1SwerveController::compute_corner_commands(
     const double vwx = vx - wz * y_i;
     const double vwy = vy + wz * x_i;
 
-    double speed = std::hypot(vwx, vwy);
-    double angle = speed > 1e-9 ? std::atan2(vwy, vwx) : last_steering_angle_[i];
-
-    // Angle-flip optimization: a continuous joint can reach the same physical wheel direction by
-    // rotating to `angle` and driving forward, or to `angle + pi` and driving in reverse --
-    // whichever is the shorter rotation from where the wheel is now. Compare against the last
-    // *unwrapped* commanded angle, not a re-wrapped one, so this stays correct across repeated
-    // cycles rather than only ever comparing to a value in (-pi, pi].
-    double delta = normalize_angle(angle - last_steering_angle_[i]);
-    if (std::abs(delta) > M_PI_2)
+    // Is this corner's steering angle held fixed this cycle, and at what angle? Only
+    // LOCKED_0/LOCKED_90 apply to every corner; TWO_WHEEL applies only to the rear pair (front
+    // free-steers via the same full-swerve path below) -- see rp1-specs/requirements.md for why
+    // rear-locked was picked as the concrete "2-wheel" interpretation.
+    bool locked = false;
+    double locked_angle = 0.0;
+    switch (mode)
     {
-      angle = normalize_angle(angle + M_PI);
-      speed = -speed;
-      delta = normalize_angle(angle - last_steering_angle_[i]);
+      case SwerveMode::LOCKED_0:
+        locked = true;
+        locked_angle = 0.0;
+        break;
+      case SwerveMode::LOCKED_90:
+        locked = true;
+        locked_angle = M_PI_2;
+        break;
+      case SwerveMode::TWO_WHEEL:
+        if (i == REAR_LEFT || i == REAR_RIGHT)
+        {
+          locked = true;
+          locked_angle = 0.0;
+        }
+        break;
+      case SwerveMode::FULL_SWERVE:
+        break;
     }
 
-    const double unwrapped_angle = last_steering_angle_[i] + delta;
-    last_steering_angle_[i] = unwrapped_angle;
+    double speed;
+    double angle;
 
+    if (locked)
+    {
+      // Project the same rigid-body-twist vector onto the fixed direction instead of solving
+      // for a free angle -- exactly the standard skid-steer differential-drive formula when
+      // locked_angle is 0 (vwx = vx - wz*y_i, matching diff_drive_controller's per-side
+      // v = vx -/+ wz*track/2 convention for left/right at y_i = +/-half_track). No angle-flip
+      // optimization here: a locked wheel should stay visually fixed at locked_angle, not flip
+      // to the opposite angle with reversed speed even though that's motion-equivalent -- the
+      // whole point of "locked" is a known, fixed wheel orientation.
+      speed = vwx * std::cos(locked_angle) + vwy * std::sin(locked_angle);
+
+      // Still take the shortest unwrapped path to locked_angle (not the flip-optimized path),
+      // so a corner switching INTO a locked mode from some arbitrary free-swerve angle doesn't
+      // command a multi-turn spin, and so last_steering_angle_ keeps meaning "the unwrapped
+      // angle actually commanded" for whichever mode runs next.
+      const double delta = normalize_angle(locked_angle - last_steering_angle_[i]);
+      angle = last_steering_angle_[i] + delta;
+    }
+    else
+    {
+      speed = std::hypot(vwx, vwy);
+      angle = speed > 1e-9 ? std::atan2(vwy, vwx) : last_steering_angle_[i];
+
+      // Angle-flip optimization: a continuous joint can reach the same physical wheel direction
+      // by rotating to `angle` and driving forward, or to `angle + pi` and driving in reverse --
+      // whichever is the shorter rotation from where the wheel is now. Compare against the last
+      // *unwrapped* commanded angle, not a re-wrapped one, so this stays correct across repeated
+      // cycles rather than only ever comparing to a value in (-pi, pi].
+      double delta = normalize_angle(angle - last_steering_angle_[i]);
+      if (std::abs(delta) > M_PI_2)
+      {
+        angle = normalize_angle(angle + M_PI);
+        speed = -speed;
+        delta = normalize_angle(angle - last_steering_angle_[i]);
+      }
+      angle = last_steering_angle_[i] + delta;
+    }
+
+    last_steering_angle_[i] = angle;
     wheel_velocity[i] = speed;
-    steering_angle[i] = unwrapped_angle;
+    steering_angle[i] = angle;
   }
 }
 

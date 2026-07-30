@@ -20,8 +20,31 @@ and what it needs to do") for the operating modes this needs to support, and
   each corner's wheel speed + steering angle at its steering-axis position
   (`half_wheelbase`/`half_track` params), with the angle-flip optimization (rotate ≤90° and
   reverse wheel speed instead of always steering to the literal computed angle) tracked against
-  an unwrapped last-commanded-angle per corner. Continuous free-angle swerve only — no discrete
-  mode concept yet (see below).
+  an unwrapped last-commanded-angle per corner.
+- **The four operating modes from `rp1-specs/requirements.md`**, selected via `~/mode`
+  (`std_msgs/UInt8`, `SwerveMode` in the header):
+  - `0` **FULL_SWERVE** (default) — all 4 corners independently steered, as above.
+  - `1` **LOCKED_0** — all 4 wheels held at 0°, driven by projecting the same rigid-body-twist
+    vector onto that fixed direction — algebraically identical to standard skid-steer
+    differential drive (`vx ∓ wz·half_track` per side). `vy` has no effect (can't strafe with
+    wheels locked forward).
+  - `2` **LOCKED_90** — all 4 wheels held at 90° (pure crab), same projection trick. `vx` has no
+    effect (can't drive fore/aft with wheels locked sideways).
+  - `3` **TWO_WHEEL** — rear 2 corners locked at 0° like `LOCKED_0`, front 2 free-steer via the
+    full IK above. Ackermann-like, though not true Ackermann geometry (no explicit turn-radius
+    computation) — a deliberate simplification reusing the existing per-corner IK/lock
+    machinery; front/rear corner choice is a specific decision (matches conventional
+    front-steered vehicles), not the only valid reading of `requirements.md`'s "2-wheel
+    steering."
+  - Locked corners skip the angle-flip optimization on purpose — a "locked" wheel should stay
+    visually fixed at its locked angle, not flip to the opposite angle with reversed speed even
+    though that's motion-equivalent. Unrecognized `~/mode` values fail safe to `FULL_SWERVE`
+    rather than erroring.
+  - Verified live against the mock bringup: `LOCKED_0`/`LOCKED_90`/`TWO_WHEEL` all produced
+    exact numeric matches to hand-calculated expected wheel speeds/angles (including the
+    front/rear or left/right differential split from `wz`), and switching back to
+    `FULL_SWERVE` — and an out-of-range mode value — both correctly fall back to the
+    unconstrained IK.
 - **Odometry.** `compute_body_twist()` reads back drive velocity + steering position *state*
   (`wheel_radius` param converts angular velocity to linear speed) and solves the same
   rigid-body-twist equations as the IK, in reverse — exact for this controller's always-
@@ -40,11 +63,17 @@ and what it needs to do") for the operating modes this needs to support, and
 
 ## What's not here yet
 
-- **The 0°/90°-locked, 2-wheel, and full-swerve operating modes** from
-  `rp1-specs/requirements.md` — no mode concept exists yet; there's only ever continuous
-  free-angle swerve from whatever `cmd_vel` says.
+- **No verified/homed-position gating on locked modes.** Nothing here checks
+  `home_0deg`/`home_90deg` before or after commanding `LOCKED_0`/`LOCKED_90` — a mode switch
+  commands the locked angle immediately based on `last_steering_angle_`'s current value, not a
+  confirmed physical reference. `requirements.md`'s note that transitioning between locked
+  configurations should happen by rotating in place (and presumably being confirmed by the
+  proximity switches) isn't implemented as a state machine here.
 - **`seek_home`/`home_0deg`/`home_90deg` aren't read** — the 0°/90° proximity sensors and homing
   command from `rp1_swerve.urdf` exist but nothing here consumes them yet.
+- **No mode-switch safety handling** — switching modes while the robot is moving takes effect
+  on the next control cycle with whatever `cmd_vel` happens to be current; there's no ramping,
+  no requirement to be stopped first, no rejection of a switch mid-turn.
 - Not wired into the real DroneCAN hardware path (`vesc_dronecan_driver` against `can0`/`vcan0`)
   or Gazebo physics yet — only the mock-hardware bringup exists so far. On mock hardware the
   odometry above is computed from state that's just last cycle's command looped back, not real
