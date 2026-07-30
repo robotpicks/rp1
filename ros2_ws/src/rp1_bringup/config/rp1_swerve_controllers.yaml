@@ -35,6 +35,11 @@ rp1_swerve_controller:
       - steering_rear_right
     half_wheelbase: 0.4
     half_track: 0.64
+    # Which 2 corners free-steer in TWO_WHEEL mode -- any 2 of the 4, not fixed to a front/rear
+    # pair. Default is the front pair (a conventional front-steered vehicle).
+    two_wheel_steered_corners:
+      - front_left
+      - front_right
     # Rolling radius for converting drive-joint angular velocity state into linear speed for
     # odometry -- matches rp1_drive.urdf's wheel collision cylinder radius.
     wheel_radius: 0.2154

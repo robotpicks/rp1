@@ -60,6 +60,42 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
   corner_position_[REAR_LEFT] = {-half_wheelbase_, half_track_};
   corner_position_[REAR_RIGHT] = {-half_wheelbase_, -half_track_};
 
+  // Which 2 corners free-steer in TWO_WHEEL mode -- any 2, not fixed to a front/rear pair (see
+  // the header). Default is the front pair (a conventional front-steered vehicle), but any
+  // combination is valid: one front + one rear, both on one side, or diagonal corners.
+  const auto two_wheel_steered_names = node->declare_parameter<std::vector<std::string>>(
+    "two_wheel_steered_corners", std::vector<std::string>{"front_left", "front_right"});
+  if (two_wheel_steered_names.size() != 2)
+  {
+    RCLCPP_ERROR(
+      node->get_logger(), "two_wheel_steered_corners must list exactly 2 corner names -- got %zu",
+      two_wheel_steered_names.size());
+    return controller_interface::CallbackReturn::ERROR;
+  }
+  const std::array<std::pair<const char *, CornerIndex>, NUM_CORNERS> corner_name_lookup{{
+    {"front_left", FRONT_LEFT},
+    {"front_right", FRONT_RIGHT},
+    {"rear_left", REAR_LEFT},
+    {"rear_right", REAR_RIGHT},
+  }};
+  two_wheel_steered_.fill(false);
+  for (const auto & name : two_wheel_steered_names)
+  {
+    auto it = std::find_if(
+      corner_name_lookup.begin(), corner_name_lookup.end(),
+      [&name](const auto & entry) { return name == entry.first; });
+    if (it == corner_name_lookup.end())
+    {
+      RCLCPP_ERROR(
+        node->get_logger(),
+        "two_wheel_steered_corners entry '%s' is not one of front_left, front_right, rear_left, "
+        "rear_right",
+        name.c_str());
+      return controller_interface::CallbackReturn::ERROR;
+    }
+    two_wheel_steered_[it->second] = true;
+  }
+
   last_steering_angle_.fill(0.0);
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -248,9 +284,9 @@ void RP1SwerveController::compute_corner_commands(
     const double vwy = vy + wz * x_i;
 
     // Is this corner's steering angle held fixed this cycle, and at what angle? Only
-    // LOCKED_0/LOCKED_90 apply to every corner; TWO_WHEEL applies only to the rear pair (front
-    // free-steers via the same full-swerve path below) -- see rp1-specs/requirements.md for why
-    // rear-locked was picked as the concrete "2-wheel" interpretation.
+    // LOCKED_0/LOCKED_90 apply to every corner; TWO_WHEEL applies to whichever 2 corners
+    // two_wheel_steered_ says are NOT the free-steering pair (the free pair, any 2 of the 4 per
+    // that parameter, takes the same full-swerve path below).
     bool locked = false;
     double locked_angle = 0.0;
     switch (mode)
@@ -264,7 +300,7 @@ void RP1SwerveController::compute_corner_commands(
         locked_angle = M_PI_2;
         break;
       case SwerveMode::TWO_WHEEL:
-        if (i == REAR_LEFT || i == REAR_RIGHT)
+        if (!two_wheel_steered_[i])
         {
           locked = true;
           locked_angle = 0.0;

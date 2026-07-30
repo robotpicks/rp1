@@ -30,21 +30,24 @@ and what it needs to do") for the operating modes this needs to support, and
     wheels locked forward).
   - `2` **LOCKED_90** — all 4 wheels held at 90° (pure crab), same projection trick. `vx` has no
     effect (can't drive fore/aft with wheels locked sideways).
-  - `3` **TWO_WHEEL** — rear 2 corners locked at 0° like `LOCKED_0`, front 2 free-steer via the
-    full IK above. Ackermann-like, though not true Ackermann geometry (no explicit turn-radius
-    computation) — a deliberate simplification reusing the existing per-corner IK/lock
-    machinery; front/rear corner choice is a specific decision (matches conventional
-    front-steered vehicles), not the only valid reading of `requirements.md`'s "2-wheel
-    steering."
+  - `3` **TWO_WHEEL** — 2 corners free-steer via the full IK above, the other 2 locked at 0°
+    like `LOCKED_0`. **Which 2 is the `two_wheel_steered_corners` parameter** (a list of exactly
+    2 of `front_left`/`front_right`/`rear_left`/`rear_right`), not fixed in code — default is
+    the front pair (a conventional front-steered vehicle), but one front + one rear, both on one
+    side, or diagonal corners are equally valid. Ackermann-like, though not true Ackermann
+    geometry (no explicit turn-radius computation) — a deliberate simplification reusing the
+    existing per-corner IK/lock machinery.
   - Locked corners skip the angle-flip optimization on purpose — a "locked" wheel should stay
     visually fixed at its locked angle, not flip to the opposite angle with reversed speed even
     though that's motion-equivalent. Unrecognized `~/mode` values fail safe to `FULL_SWERVE`
     rather than erroring.
   - Verified live against the mock bringup: `LOCKED_0`/`LOCKED_90`/`TWO_WHEEL` all produced
     exact numeric matches to hand-calculated expected wheel speeds/angles (including the
-    front/rear or left/right differential split from `wz`), and switching back to
-    `FULL_SWERVE` — and an out-of-range mode value — both correctly fall back to the
-    unconstrained IK.
+    front/rear or left/right differential split from `wz`), switching back to `FULL_SWERVE` —
+    and an out-of-range mode value — both correctly fall back to the unconstrained IK, and
+    overriding `two_wheel_steered_corners` to a non-default pair (`front_left`/`rear_left`,
+    a front+rear diagonal-ish pair rather than the default front pair) correctly moved which 2
+    corners free-steer.
 - **Odometry.** `compute_body_twist()` reads back drive velocity + steering position *state*
   (`wheel_radius` param converts angular velocity to linear speed) and solves the same
   rigid-body-twist equations as the IK, in reverse — exact for this controller's always-

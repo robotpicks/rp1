@@ -40,7 +40,8 @@ enum class SwerveMode : uint8_t
   FULL_SWERVE = 0,  // all 4 corners independently steered (today's only behavior, unchanged)
   LOCKED_0 = 1,     // all 4 wheels straight ahead, skid-steer differential from vx+wz; vy dropped
   LOCKED_90 = 2,    // all 4 wheels perpendicular to travel (pure crab), from vy+wz; vx dropped
-  TWO_WHEEL = 3,    // front 2 corners free-steer (full IK), rear 2 locked at 0 like LOCKED_0
+  TWO_WHEEL = 3,    // 2 corners free-steer (full IK), other 2 locked at 0 like LOCKED_0 --
+                    // which 2 is the two_wheel_steered_corners parameter, not fixed in code
 };
 
 class RP1SwerveController : public controller_interface::ControllerInterface
@@ -97,6 +98,15 @@ protected:
   // publish a stray/uninitialized value on.
   rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
   std::atomic<uint8_t> mode_{static_cast<uint8_t>(SwerveMode::FULL_SWERVE)};
+
+  // Which 2 corners free-steer in TWO_WHEEL mode -- any 2 of the 4, not fixed to a front/rear
+  // pair. Set via the two_wheel_steered_corners parameter (exactly 2 of "front_left",
+  // "front_right", "rear_left", "rear_right"; default is the front pair, matching a
+  // conventional front-steered vehicle, but e.g. one front + one rear, or the two on one side,
+  // are equally valid choices this parameter supports). true = free-steers, false = locked at
+  // 0 deg like LOCKED_0. Computed once in on_init(), read (not mutated) in
+  // compute_corner_commands().
+  std::array<bool, NUM_CORNERS> two_wheel_steered_{};
 
   // Steering-axis geometry, half-dimensions in metres (base_link frame, X forward/Y left) --
   // defaults match the CAD steering-axis positions in rp1-specs/mechanical_spec.md §3.1
