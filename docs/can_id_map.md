@@ -94,6 +94,12 @@ steering VESCs' ABZ encoder (see below) -- that's a separate 3-channel encoder f
 absolute-ish position feedback, on a different actuator (`actuator_id`, not `esc_index`) with
 its own FOC position-control needs (steering does need position, unlike drive).
 
+**Shared VESC sensor port**: on this VESC hardware, Hall and encoder modes use the *same*
+physical connector -- its pins are just reinterpreted depending on configuration: Hall mode
+reads them as 3 Hall channels + motor temperature; encoder mode reads the same pins as A/B/Z +
+temperature. So the drive VESCs (Hall mode) and the steering VESCs (ABZ encoder mode) use an
+identical port type, just configured differently -- not two different connectors.
+
 ## VESC UAVCAN configuration (one-off, per VESC, via VESC Tool over USB)
 
 Firmware 7.00 (`/home/user/dev/bldc`, confirmed via `conf_general.h`) exposes **two** distinct
@@ -154,6 +160,13 @@ Only wheels 1 and 2's steering (`actuator_id` 5 and 6) are wired up on the bench
   ABZ quadrature encoder for this -- a correction to this file's earlier claim that none of the
   bench steering VESCs have one (and that reported positions were meaningless FOC-fighting-
   phantom-feedback). Not yet independently re-verified against the actual bench wiring.
+  - The encoder's A/B/Z outputs are **differential** (A+/A-, B+/B-, Z+/Z-), not the single-ended
+    levels the VESC's shared sensor port expects in encoder mode (see "Shared VESC sensor port"
+    above). An AM26C32-based differential-to-single-ended converter board sits between them
+    (spec sheet: `rp1-specs/assets/Diff2single.odt`): 3-channel differential in, single-ended
+    0-5V A/B/Z out (not 5V-tolerant micro pins need a 1-3.3kΩ series resistor per the sheet), up
+    to 20MHz with no pulse loss, plus a built-in 5V/150mA
+    supply for the encoder itself, powered from either 7-35V or a direct 5V rail.
 - `vesc_dronecan_driver` handles this through the same `VescDroneCanSystem` component as
   the drive wheels: a joint declaring `actuator_id` is a steering actuator (position command),
   one declaring `esc_index` is a drive wheel (velocity command). The MVP description
