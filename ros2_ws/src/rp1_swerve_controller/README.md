@@ -15,22 +15,33 @@ and what it needs to do") for the operating modes this needs to support, and
 - Subscribes `~/cmd_vel` (`geometry_msgs/TwistStamped`, matching `rp1_teleop`'s output and
   `diff_drive_controller`'s convention on this ROS 2 release).
 - Lifecycle (`on_init`/`on_configure`/`on_activate`/`on_deactivate`) and `update()` are wired
-  end-to-end and safe to load/activate today — with every corner always commanded to 0
-  velocity / 0 angle regardless of `cmd_vel` input.
+  end-to-end and safe to load/activate.
+- **Real swerve inverse kinematics.** `compute_corner_commands()` decomposes `(vx, vy, wz)` into
+  each corner's wheel speed + steering angle at its steering-axis position
+  (`half_wheelbase`/`half_track` params), with the angle-flip optimization (rotate ≤90° and
+  reverse wheel speed instead of always steering to the literal computed angle) tracked against
+  an unwrapped last-commanded-angle per corner. Continuous free-angle swerve only — no discrete
+  mode concept yet (see below).
+- Verified end-to-end against `rp1_bringup`'s `rp1_swerve_mock.launch.py` (mock hardware, real
+  `rp1_swerve.urdf`, no CAN/Gazebo): straight, pure lateral/crab, and turn-in-place all produce
+  the expected `/joint_states`, including the angle-flip case actually engaging correctly. See
+  that launch file for the "watch it before trusting it on the robot" bringup.
 
 ## What's not here yet
 
-- **Swerve inverse kinematics.** `compute_corner_commands()` in
-  `rp1_swerve_controller.cpp` is the deliberate placeholder for this — see the `TODO(swerve)`
-  comment there. No per-wheel speed/angle math, no continuous-joint angle-wrap optimization.
 - **The 0°/90°-locked, 2-wheel, and full-swerve operating modes** from
-  `rp1-specs/requirements.md` — no mode concept exists yet; there's only ever "the" swerve
-  command.
+  `rp1-specs/requirements.md` — no mode concept exists yet; there's only ever continuous
+  free-angle swerve from whatever `cmd_vel` says.
 - **No state feedback is consumed** (`state_interface_configuration()` claims none) — nothing
-  here reads back steering position, the 0°/90° proximity sensors, or brake state yet.
-- Not wired into any launch file (`rp1_bringup`) or controller config YAML yet, and not
-  registered in any URDF's `<ros2_control>` block.
-- No tests.
+  here reads back steering position, the 0°/90° proximity sensors (`seek_home`/`home_0deg`/
+  `home_90deg`, see `rp1_swerve.urdf`), or brake state yet.
+- **No odometry.** Unlike `diff_drive_controller`, this doesn't publish `/odom` or an
+  `odom→base_link` TF — in `rp1_swerve_mock.launch.py` the robot's joints articulate correctly
+  but it doesn't visibly translate through the world.
+- Not wired into the real DroneCAN hardware path (`vesc_dronecan_driver` against `can0`/`vcan0`)
+  or Gazebo physics yet — only the mock-hardware bringup exists so far.
+- No automated tests (the IK has been verified by hand and via live `ros2 topic pub` +
+  `/joint_states` inspection, not a gtest suite).
 
 Not chainable (`controller_interface::ControllerInterface`, not `ChainableControllerInterface`)
 — unlike this ROS 2 release's `diff_drive_controller`/`mecanum_drive_controller`. Revisit only if
