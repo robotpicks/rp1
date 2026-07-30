@@ -70,15 +70,29 @@ must match the `esc_index` parameter on the corresponding joint in
 `rp1_description/urdf/rp1_drive.urdf`. There is no separate translation layer -- the URDF
 joint carries the index directly.
 
-**Drive motor commutation/speed feedback sensor** (added 2026-07-30): each drive VESC has both
-an AB (2-channel) encoder and a 3-Hall-sensor setup available to wire up, but only one can be
-selected as the active feedback sensor at a time (a per-motor VESC Tool FOC configuration
-choice) -- which one rp1 will actually use is not yet decided. Doesn't change the DroneCAN wire
-protocol either way (`esc.Status.rpm` reporting is the same regardless of which sensor feeds
-the VESC's internal FOC loop), so this doesn't block anything software-side; noted here as a
-hardware fact for whoever configures the VESCs. Unrelated to the steering VESCs' ABZ encoder
-(see below) -- that's a separate 3-channel encoder for absolute-ish position feedback, on a
-different actuator (`actuator_id`, not `esc_index`) with its own FOC position-control needs.
+**Drive motor commutation/speed feedback sensor**: each drive VESC has both an AB (2-channel)
+encoder and a 3-Hall-sensor setup available to wire up, but only one can be selected as the
+active feedback sensor at a time (a per-motor VESC Tool FOC configuration choice). **Decision
+(2026-07-30): use the Hall sensors.**
+- The drive units are sealed hub motors (`ZLLG16ASM800`) -- Hall sensors are near-certainly
+  already factory-wired inside; retrofitting an external AB encoder onto an already-sealed hub
+  motor would need mechanical rework that may not even be possible without a custom part.
+- The drive path only needs velocity, never position -- `diff_drive_controller` runs with
+  `position_feedback: false` and integrates position from velocity already (see below); nothing
+  needs the encoder's finer resolution.
+- rp1 is an outdoor ag-robot (dust/moisture/vibration) -- Hall sensors are simple digital
+  switches with generous alignment tolerance; an encoder needs tighter mechanical alignment and
+  is more failure-prone in that environment.
+- Hall + sensorless hybrid FOC is VESC's most mature, most widely-used sensor mode, with better
+  standstill/low-speed startup behavior than sensorless alone, without encoder-commutation setup
+  complexity.
+
+Doesn't change the DroneCAN wire protocol either way (`esc.Status.rpm` reporting is the same
+regardless of which sensor feeds the VESC's internal FOC loop) -- this is a VESC Tool
+configuration choice for whoever wires up the motors, not a software change. Unrelated to the
+steering VESCs' ABZ encoder (see below) -- that's a separate 3-channel encoder for
+absolute-ish position feedback, on a different actuator (`actuator_id`, not `esc_index`) with
+its own FOC position-control needs (steering does need position, unlike drive).
 
 ## VESC UAVCAN configuration (one-off, per VESC, via VESC Tool over USB)
 
