@@ -1,0 +1,46 @@
+# rp1 config for a u-blox M10-based GNSS receiver over UART (ublox_gps driver).
+#
+# device/uart1.baudrate are PLACEHOLDERS -- confirm against the real hardware once wired up.
+# Like the IMU, the GPS reaches the PC through a Waveshare USB-to-UART/I2C/SPI/JTAG converter
+# rather than a native serial port, so the actual /dev/ttyUSBx or /dev/ttyACMx path depends on
+# which kernel driver binds that converter and in what order devices enumerate -- don't assume
+# these numbers without checking. u-blox M10 modules commonly default UART1 to 38400 baud, but
+# that varies by module/firmware and should be confirmed (or set explicitly via u-center) rather
+# than assumed. See rp1-specs/system_architecture.md's hardware inventory.
+#
+# Unlike the IMU, this isn't a from-scratch driver -- ublox_gps (stock ROS2 package) already
+# supports u-blox UBX-protocol receivers over serial; this file is only the M10-specific config,
+# based on ublox_gps's own neo_m8u_rover.yaml example, trimmed to what a plain M10 (no dead
+# reckoning, no RTK) actually supports -- don't copy the M8U example's esf/dr_limit/dgnss_mode
+# settings back in, those are for a different chip.
+
+ublox_gps_node:
+  ros__parameters:
+    device: /dev/ttyUSB0
+    frame_id: gps_link
+    rate: 5.0            # Hz -- M10 supports up to 10-25Hz depending on constellation config
+    nav_rate: 1           # measurement cycles per solution
+    dynamic_model: automotive
+    fix_mode: 3d
+
+    uart1:
+      baudrate: 38400
+      in: 1               # UBX in
+      out: 1              # UBX out
+
+    gnss:
+      glonass: true
+      galileo: true
+      beidou: true
+      qzss: false
+
+    dgnss_mode: 0          # no DGNSS/RTK corrections (no NTRIP client wired up yet)
+
+    inf:
+      all: false
+
+    publish:
+      all: false
+      nav:
+        posllh: true       # sensor_msgs/NavSatFix
+        status: true

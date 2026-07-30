@@ -14,6 +14,9 @@
   <exec_depend>rqt_robot_steering</exec_depend>
   <exec_depend>rp1_teleop</exec_depend>
   <exec_depend>rp1_elrs</exec_depend>
+  <exec_depend>rp1_imu</exec_depend>
+  <exec_depend>rp1_gps</exec_depend>
+  <exec_depend>ublox_gps</exec_depend>
   <exec_depend>vesc_dronecan_driver</exec_depend>
   <exec_depend>rp1_description</exec_depend>
   <exec_depend>controller_manager</exec_depend>

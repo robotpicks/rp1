@@ -1,0 +1,21 @@
+# rp1 config for the ICM20948 IMU driver.
+#
+# spi_bus/spi_device are PLACEHOLDERS -- confirm against the real /dev/spidev* enumeration once
+# hardware is wired up. The IMU reaches the PC through a Waveshare USB-to-UART/I2C/SPI/JTAG
+# converter, not a native on-board SPI controller; which /dev/spidevX.Y it shows up as depends
+# on which kernel driver binds that converter's USB VID/PID (e.g. ch341/ch347's spi-ch341-usb,
+# or an FTDI MPSSE driver) -- that module needs to actually be loaded and the resulting device
+# node identified before these numbers mean anything. See rp1-specs/system_architecture.md's
+# hardware inventory for the rest of the second-wave sensor wiring.
+
+icm20948_driver:
+  ros__parameters:
+    require_spi: true
+    spi_bus: 0
+    spi_device: 0
+    spi_max_speed_hz: 1000000
+    frame_id: imu_link
+    rate_hz: 100.0
+    accel_fs_g: 8
+    gyro_fs_dps: 1000
+    enable_magnetometer: true

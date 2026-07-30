@@ -33,6 +33,16 @@ docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks i
   teleop:=false alongside it. Its own window, not a panel inside rviz. Natively supports
   TwistStamped (default_stamped param, set true below), so it needs no translator either.
 
+  imu:=true / gps:=true start the second-wave sensor drivers (rp1_imu's ICM20948-over-SPI node,
+  rp1_gps's ublox_gps-based M10-over-UART node) -- both default off since neither piece of
+  hardware is wired up yet as of 2026-07-30. Neither node's dry-run story is as solid as the
+  drive path's: the IMU driver is UNVERIFIED against real hardware (see
+  icm20948_driver_node.py's module docstring), and ublox_gps has no require_serial-style escape
+  hatch at all, so gps:=true against a nonexistent device crashes the node rather than dry-running
+  it. See rp1_imu/config/rp1_imu.yaml and rp1_gps/config/rp1_gps.yaml for the SPI bus/device and
+  serial port/baud placeholders that need confirming against the real Waveshare
+  USB-to-UART/I2C/SPI/JTAG converter wiring once it exists.
+
 controller_manager in this ROS 2 release takes the robot description from the /robot_description
 TOPIC, not from a parameter -- it logs "Waiting for data on 'robot_description' topic" and
 blocks until robot_state_publisher latches it. That is why the description is built once here
@@ -160,6 +170,14 @@ def generate_launch_description():
             'rqt_steering', default_value='false',
             description='Start rqt_robot_steering (mouse-driven slider GUI) instead. Pass '
                         'teleop:=false alongside this -- both publish to the same topic.'),
+        DeclareLaunchArgument(
+            'imu', default_value='false',
+            description='Start the ICM20948 IMU driver (rp1_imu). Unverified against real '
+                        'hardware -- see module docstring.'),
+        DeclareLaunchArgument(
+            'gps', default_value='false',
+            description='Start the u-blox M10 GPS driver (rp1_gps). No dry-run mode -- crashes '
+                        'if the configured device does not exist.'),
 
         OpaqueFunction(function=_robot_description),
 
@@ -216,6 +234,24 @@ def generate_launch_description():
                 'default_stamped': True,
             }],
             condition=IfCondition(LaunchConfiguration('rqt_steering')),
+        ),
+        Node(
+            package='rp1_imu',
+            executable='icm20948_driver',
+            name='icm20948_driver',
+            output='screen',
+            parameters=[
+                os.path.join(get_package_share_directory('rp1_imu'), 'config', 'rp1_imu.yaml')],
+            condition=IfCondition(LaunchConfiguration('imu')),
+        ),
+        Node(
+            package='ublox_gps',
+            executable='ublox_gps_node',
+            name='ublox_gps_node',
+            output='screen',
+            parameters=[
+                os.path.join(get_package_share_directory('rp1_gps'), 'config', 'rp1_gps.yaml')],
+            condition=IfCondition(LaunchConfiguration('gps')),
         ),
 
         # Controllers are spawned strictly sequentially (TimerAction delay, then chained via

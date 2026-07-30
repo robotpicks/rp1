@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rp1_gps</name>
+  <version>0.0.1</version>
+  <description>rp1's config/launch for a u-blox M10 GNSS receiver over UART, using the stock ublox_gps driver -- no custom driver code, this package is glue only.</description>
+  <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>ublox_gps</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
