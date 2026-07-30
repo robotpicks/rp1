@@ -35,3 +35,9 @@ rp1_swerve_controller:
       - steering_rear_right
     half_wheelbase: 0.4
     half_track: 0.64
+    # Rolling radius for converting drive-joint angular velocity state into linear speed for
+    # odometry -- matches rp1_drive.urdf's wheel collision cylinder radius.
+    wheel_radius: 0.2154
+    odom_frame_id: odom
+    base_frame_id: base_link
+    enable_odom_tf: true

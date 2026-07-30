@@ -6,13 +6,11 @@ whether the swerve inverse kinematics (rp1_swerve_controller) points each wheel 
 and spins it at a sane speed for a given /cmd_vel, before trusting it against Gazebo physics or
 real VESCs.
 
-  rviz:=true starts rviz2 (rp1_swerve.rviz -- RobotModel + TF, Fixed Frame base_link). There is
-  no odometry here: rp1_swerve_controller does not (yet) compute forward kinematics/publish
-  /odom the way diff_drive_controller does, so the robot does not visibly translate through the
-  world in this tier -- only the steering/drive joints articulate. That's enough to check the IK
-  (wheel angle + spin direction/speed per corner), not to watch the robot drive across the grid;
-  see rp1_swerve_sim.launch.py (rp1_sim's pure-math swerve_sim_node) for a tier that does
-  integrate a body pose, at the cost of not exercising this controller or the real URDF/mesh.
+  rviz:=true starts rviz2 (rp1_swerve.rviz -- RobotModel + TF + Odometry, Fixed Frame odom).
+  rp1_swerve_controller computes odometry (forward kinematics from wheel/steering *state*, not
+  the commands -- on mock hardware that state is just last cycle's command looped back) and
+  publishes it on ~/odom plus an odom->base_link TF, the same as diff_drive_controller, so the
+  robot does actually drive across the grid here, not just articulate its joints in place.
   keyboard:=true / rqt_steering:=true drive it, same convention as rp1_mvp.launch.py -- both
   publish TwistStamped directly to /rp1_swerve_controller/cmd_vel, no translator node needed.
 

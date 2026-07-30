@@ -7,6 +7,7 @@ Panels:
         - /Global Options1
         - /TF1
         - /RobotModel1
+        - /Odometry1
       Splitter Ratio: 0.5
     Tree Height: 701
   - Class: rviz_common/Views
@@ -33,7 +34,7 @@ Visualization Manager:
         Z: 0
       Plane: XY
       Plane Cell Count: 20
-      Reference Frame: base_link
+      Reference Frame: odom
       Value: true
     - Class: rviz_default_plugins/TF
       Enabled: true
@@ -69,10 +70,49 @@ Visualization Manager:
       Update Interval: 0
       Value: true
       Visual Enabled: true
+    - Angle Tolerance: 0.1
+      Class: rviz_default_plugins/Odometry
+      Covariance:
+        Orientation:
+          Alpha: 0.5
+          Color: 255; 255; 127
+          Color Style: Unique
+          Frame: Local
+          Offset: 1
+          Scale: 1
+          Value: true
+        Position:
+          Alpha: 0.3
+          Color: 204; 51; 204
+          Scale: 1
+          Value: true
+        Value: true
+      Enabled: true
+      Keep: 200
+      Name: Odometry
+      Position Tolerance: 0.1
+      Shape:
+        Alpha: 1
+        Axes Length: 0.3
+        Axes Radius: 0.05
+        Color: 255; 25; 0
+        Head Length: 0.15
+        Head Radius: 0.1
+        Shaft Length: 0.4
+        Shaft Radius: 0.03
+        Value: Arrow
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /rp1_swerve_controller/odom
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: base_link
+    Fixed Frame: odom
     Frame Rate: 30
   Name: root
   Tools:

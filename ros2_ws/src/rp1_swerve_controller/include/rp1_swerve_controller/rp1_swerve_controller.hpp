@@ -10,8 +10,12 @@
 #include "controller_interface/controller_interface.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "hardware_interface/loaned_command_interface.hpp"
+#include "hardware_interface/loaned_state_interface.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp_lifecycle/state.hpp"
+#include "realtime_tools/realtime_publisher.hpp"
 #include "realtime_tools/realtime_thread_safe_box.hpp"
+#include "tf2_ros/transform_broadcaster.hpp"
 
 namespace rp1_swerve_controller
 {
@@ -62,6 +66,15 @@ protected:
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     steering_position_command_;
 
+  // State feedback, read each update() to compute odometry -- NOT used by
+  // compute_corner_commands() (the IK is open-loop from cmd_vel, same as before). On mock
+  // hardware this is just last cycle's command looped back; on the real DroneCAN hardware it
+  // would be the VESCs' actual reported speed/position.
+  std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>
+    drive_velocity_state_;
+  std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>
+    steering_position_state_;
+
   rclcpp::Subscription<TwistStamped>::SharedPtr cmd_vel_subscriber_;
   realtime_tools::RealtimeThreadSafeBox<std::shared_ptr<TwistStamped>> input_cmd_vel_{nullptr};
 
@@ -73,6 +86,14 @@ protected:
   // half_wheelbase/half_track parameters since these are CAD-unmeasured numbers.
   double half_wheelbase_ = 0.4;
   double half_track_ = 0.64;
+  // Rolling radius, metres -- converts a drive joint's reported angular velocity (rad/s) into
+  // linear wheel speed (m/s) for odometry. Default matches rp1_drive.urdf's wheel collision
+  // cylinder / rp1-specs/mechanical_spec.md §3.3.1 (CAD-nominal, not a measured/loaded radius).
+  double wheel_radius_ = 0.2154;
+
+  std::string odom_frame_id_ = "odom";
+  std::string base_frame_id_ = "base_link";
+  bool enable_odom_tf_ = true;
 
   // Per-corner (x, y) in CornerIndex order, computed from half_wheelbase_/half_track_ in
   // on_configure().
@@ -84,7 +105,24 @@ protected:
   // and to avoid the commanded angle jumping by 2*pi at the wrap boundary.
   std::array<double, NUM_CORNERS> last_steering_angle_{};
 
+  // Integrated pose, odom frame.
+  double odom_x_ = 0.0;
+  double odom_y_ = 0.0;
+  double odom_yaw_ = 0.0;
+
+  using OdomPublisher = realtime_tools::RealtimePublisher<nav_msgs::msg::Odometry>;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_publisher_;
+  std::unique_ptr<OdomPublisher> realtime_odom_publisher_;
+  std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+
 private:
+  // Swerve forward kinematics: per-corner wheel speed + steering angle state -> body twist
+  // (vx, vy, wz). Exact least-squares solution for this controller's always-rectangular corner
+  // geometry (corner_position_ is always the 4 sign combinations of +/-half_wheelbase,
+  // +/-half_track, which makes the normal equations diagonal -- see the .cpp for the derivation)
+  // -- NOT a generic solver, would need revisiting if corner_position_ ever became asymmetric.
+  void compute_body_twist(double & vx, double & vy, double & wz) const;
+
   // Swerve inverse kinematics: (vx, vy, wz) -> per-corner wheel speed + steering angle.
   // Standard rigid-body-twist decomposition per corner, plus the angle-flip optimization
   // (rotate the wheel <= 90 degrees by allowing negative speed instead of always rotating to the
