@@ -1,0 +1,37 @@
+# controller_manager + controller configuration for rp1_swerve.urdf (4 drive + 4 steering).
+#
+# Geometry (half_wheelbase/half_track) mirrors rp1_swerve.urdf's steering-axis origins, which
+# come from rp1-specs/mechanical_spec.md's CAD table -- keep these in step with that URDF by
+# hand, same caveat rp1_controllers.yaml already carries for diff_drive_controller's
+# wheel_separation/wheel_radius.
+controller_manager:
+  ros__parameters:
+    update_rate: 50  # Hz -- matches rp1_controllers.yaml's diff_drive_controller rate
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    rp1_swerve_controller:
+      type: rp1_swerve_controller/RP1SwerveController
+
+joint_state_broadcaster:
+  ros__parameters:
+    # Required for the per-ESC/steering-sensor <gpio> telemetry to reach /dynamic_joint_states --
+    # see rp1_controllers.yaml's comment for why both of these default to suppressing it.
+    publish_dynamic_joint_states: true
+    use_urdf_to_filter: false
+
+rp1_swerve_controller:
+  ros__parameters:
+    drive_joints:
+      - drive_front_left
+      - drive_front_right
+      - drive_rear_left
+      - drive_rear_right
+    steering_joints:
+      - steering_front_left
+      - steering_front_right
+      - steering_rear_left
+      - steering_rear_right
+    half_wheelbase: 0.4
+    half_track: 0.64
