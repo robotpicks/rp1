@@ -126,12 +126,15 @@ Only wheels 1 and 2's steering (`actuator_id` 5 and 6) are wired up on the bench
   own degrees internally (`mc_interface_set_pid_pos`/`mc_interface_get_pid_pos_now`) -- see
   `libcanard/canard_driver.c`'s `handle_actuator_array_command`/`sendActuatorStatus`.
 - Real position control needs an encoder wired to the steering VESC (`mc_interface_set_pid_pos`
-  requires FOC position feedback); none of the bench steering VESCs have one yet, so position
-  values currently reflect FOC fighting phantom feedback, not real steering angle.
+  requires FOC position feedback). As of 2026-07-30 the steering VESCs are specified to use an
+  ABZ quadrature encoder for this -- a correction to this file's earlier claim that none of the
+  bench steering VESCs have one (and that reported positions were meaningless FOC-fighting-
+  phantom-feedback). Not yet independently re-verified against the actual bench wiring.
 - `vesc_dronecan_driver` handles this through the same `VescDroneCanSystem` component as
   the drive wheels: a joint declaring `actuator_id` is a steering actuator (position command),
   one declaring `esc_index` is a drive wheel (velocity command). The MVP description
   (`urdf/rp1_drive.urdf`) deliberately contains drive joints only -- including steering joints
   there would broadcast an `actuator.ArrayCommand` every cycle carrying whatever an unclaimed
-  command interface holds, at wheels that still have no encoder. The bench steering description
-  (`urdf/rp1_steering.urdf`) is separate and used on its own.
+  command interface holds, and firmware `ArrayCommand` support is on a non-mainline branch (see
+  above) regardless of encoder state. The bench steering description (`urdf/rp1_steering.urdf`)
+  is separate and used on its own.

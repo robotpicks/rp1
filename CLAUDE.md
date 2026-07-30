@@ -248,8 +248,13 @@ doing the inverse kinematics (per-wheel speed *and* angle, including wheel angle
 continuous joints). When it exists, merge `rp1_drive.urdf` and `rp1_steering.urdf` into one
 description on a single node ID.
 
-Two blockers are hardware, not software: the bench steering VESCs have **no encoders**
-(`mc_interface_set_pid_pos` needs FOC position feedback, so reported positions are meaningless),
-and firmware `ArrayCommand` support is on the `add-actuator-arraycommand` branch, not mainline.
-The steering actuator type (VESC position/FOC mode vs. a separate servo/stepper + encoder) is an
-open decision, deliberately deferred so it doesn't box in the MVP.
+One remaining blocker is hardware, not software: firmware `ArrayCommand` support is on the
+`add-actuator-arraycommand` branch, not mainline. The steering actuator type is no longer an
+open decision as of 2026-07-30: the steering VESCs use an ABZ quadrature encoder for FOC
+position feedback (`mc_interface_set_pid_pos`), resolving the earlier "no encoder, reported
+positions are meaningless" state -- confirm this is actually wired up on the bench units before
+trusting reported steering angle, since this is a correction to the previously-documented
+state, not yet independently re-verified against hardware. Each steering axis is also getting
+two proximity sensors, at 0° and 90° relative to the robot's direction of travel, to lock/
+reference the steering angle -- mechanism and electrical interface not yet designed (see
+rp1-specs/system_architecture.md's swerve section).

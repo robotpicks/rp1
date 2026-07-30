@@ -23,8 +23,9 @@
 
   Steering actuators are deliberately NOT in this description: the same VescDroneCanSystem component
   handles them (see rp1_steering.urdf), but including them here would broadcast an
-  actuator.ArrayCommand every cycle with whatever the unclaimed command interface holds, at
-  wheels that have no encoder yet. Add them when the swerve controller exists.
+  actuator.ArrayCommand every cycle with whatever the unclaimed command interface holds, and
+  firmware ArrayCommand support is on a non-mainline branch (see docs/can_id_map.md). Add them
+  when the swerve controller exists.
 
   Meshes and the joint <origin> numbers below come from the rp1-mechanical FreeCAD assembly via
   tools/export_urdf_meshes.py in that submodule -- re-run it and update both after a CAD change.
