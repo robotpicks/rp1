@@ -1,12 +1,22 @@
 #include "rp1_swerve_controller/rp1_swerve_controller.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "pluginlib/class_list_macros.hpp"
 
 namespace rp1_swerve_controller
 {
+
+namespace
+{
+// Wraps an angle to (-pi, pi].
+double normalize_angle(double angle)
+{
+  return std::atan2(std::sin(angle), std::cos(angle));
+}
+}  // namespace
 
 controller_interface::CallbackReturn RP1SwerveController::on_init()
 {
@@ -25,6 +35,25 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
       NUM_CORNERS, drive_joint_names_.size(), steering_joint_names_.size());
     return controller_interface::CallbackReturn::ERROR;
   }
+
+  half_wheelbase_ = node->declare_parameter<double>("half_wheelbase", half_wheelbase_);
+  half_track_ = node->declare_parameter<double>("half_track", half_track_);
+  if (half_wheelbase_ <= 0.0 || half_track_ <= 0.0)
+  {
+    RCLCPP_ERROR(
+      node->get_logger(), "half_wheelbase (%f) and half_track (%f) must both be positive",
+      half_wheelbase_, half_track_);
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
+  // CornerIndex order: front_left, front_right, rear_left, rear_right. X forward, Y left
+  // (REP-103) -- matches rp1-specs/mechanical_spec.md's steering-axis table.
+  corner_position_[FRONT_LEFT] = {half_wheelbase_, half_track_};
+  corner_position_[FRONT_RIGHT] = {half_wheelbase_, -half_track_};
+  corner_position_[REAR_LEFT] = {-half_wheelbase_, half_track_};
+  corner_position_[REAR_RIGHT] = {-half_wheelbase_, -half_track_};
+
+  last_steering_angle_.fill(0.0);
 
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -120,17 +149,43 @@ controller_interface::CallbackReturn RP1SwerveController::on_deactivate(
 }
 
 void RP1SwerveController::compute_corner_commands(
-  const TwistStamped & /*cmd_vel*/, std::array<double, NUM_CORNERS> & wheel_velocity,
-  std::array<double, NUM_CORNERS> & steering_angle) const
+  const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
+  std::array<double, NUM_CORNERS> & steering_angle)
 {
-  // TODO(swerve): swerve inverse kinematics -- per-corner wheel speed + steering angle from
-  // (vx, vy, wz), including angle-wrap optimization and the 0/90-locked, 2-wheel, and full-swerve
-  // operating modes (rp1-specs/requirements.md). Not implemented yet: this skeleton always
-  // commands every corner to 0 velocity / 0 angle so the controller is safe to load and activate
-  // (e.g. against rp1_gazebo/mock hardware) before that math exists, rather than silently doing
-  // nothing while claiming to drive the robot.
-  wheel_velocity.fill(0.0);
-  steering_angle.fill(0.0);
+  const double vx = cmd_vel.twist.linear.x;
+  const double vy = cmd_vel.twist.linear.y;
+  const double wz = cmd_vel.twist.angular.z;
+
+  for (std::size_t i = 0; i < NUM_CORNERS; ++i)
+  {
+    const auto [x_i, y_i] = corner_position_[i];
+
+    // Rigid-body twist at this corner: v_wheel = v_body + wz x r_i, r_i = (x_i, y_i).
+    const double vwx = vx - wz * y_i;
+    const double vwy = vy + wz * x_i;
+
+    double speed = std::hypot(vwx, vwy);
+    double angle = speed > 1e-9 ? std::atan2(vwy, vwx) : last_steering_angle_[i];
+
+    // Angle-flip optimization: a continuous joint can reach the same physical wheel direction by
+    // rotating to `angle` and driving forward, or to `angle + pi` and driving in reverse --
+    // whichever is the shorter rotation from where the wheel is now. Compare against the last
+    // *unwrapped* commanded angle, not a re-wrapped one, so this stays correct across repeated
+    // cycles rather than only ever comparing to a value in (-pi, pi].
+    double delta = normalize_angle(angle - last_steering_angle_[i]);
+    if (std::abs(delta) > M_PI_2)
+    {
+      angle = normalize_angle(angle + M_PI);
+      speed = -speed;
+      delta = normalize_angle(angle - last_steering_angle_[i]);
+    }
+
+    const double unwrapped_angle = last_steering_angle_[i] + delta;
+    last_steering_angle_[i] = unwrapped_angle;
+
+    wheel_velocity[i] = speed;
+    steering_angle[i] = unwrapped_angle;
+  }
 }
 
 controller_interface::return_type RP1SwerveController::update(

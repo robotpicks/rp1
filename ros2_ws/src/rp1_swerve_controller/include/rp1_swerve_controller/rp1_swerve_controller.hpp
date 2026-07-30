@@ -4,6 +4,7 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "controller_interface/controller_interface.hpp"
@@ -64,15 +65,37 @@ protected:
   rclcpp::Subscription<TwistStamped>::SharedPtr cmd_vel_subscriber_;
   realtime_tools::RealtimeThreadSafeBox<std::shared_ptr<TwistStamped>> input_cmd_vel_{nullptr};
 
+  // Steering-axis geometry, half-dimensions in metres (base_link frame, X forward/Y left) --
+  // defaults match the CAD steering-axis positions in rp1-specs/mechanical_spec.md §3.1
+  // (wheelbase 0.8 m -> half 0.4; steering-axis track 1.28 m -> half 0.64), NOT the drive-joint
+  // positions (which differ by the ~0.071 m scrub radius, §3.2) -- swerve IK pivots each wheel
+  // about its steering axis, so that's the geometry that matters here. Overridable via the
+  // half_wheelbase/half_track parameters since these are CAD-unmeasured numbers.
+  double half_wheelbase_ = 0.4;
+  double half_track_ = 0.64;
+
+  // Per-corner (x, y) in CornerIndex order, computed from half_wheelbase_/half_track_ in
+  // on_configure().
+  std::array<std::pair<double, double>, NUM_CORNERS> corner_position_{};
+
+  // Last commanded steering angle per corner, radians, UNWRAPPED (not clamped to [-pi, pi]) --
+  // continuous joints have no wraparound, and the angle-flip optimization in
+  // compute_corner_commands() needs true continuity across cycles to pick the shorter rotation
+  // and to avoid the commanded angle jumping by 2*pi at the wrap boundary.
+  std::array<double, NUM_CORNERS> last_steering_angle_{};
+
 private:
-  // Placeholder for the swerve inverse-kinematics step: today it always commands 0 velocity / 0
-  // angle regardless of input, matching a not-yet-implemented controller rather than guessing at
-  // math that hasn't been designed yet. See rp1-specs/requirements.md ("Why swerve, and what it
-  // needs to do") for the operating modes this needs to support once implemented, and
-  // rp1-specs/software_spec.md ("Swerve controller -- not yet started") for the current status.
+  // Swerve inverse kinematics: (vx, vy, wz) -> per-corner wheel speed + steering angle.
+  // Standard rigid-body-twist decomposition per corner, plus the angle-flip optimization
+  // (rotate the wheel <= 90 degrees by allowing negative speed instead of always rotating to the
+  // literal computed angle) against last_steering_angle_ so small cmd_vel changes don't spin a
+  // wheel 180 degrees when reversing direction would be shorter. Does NOT yet implement the
+  // discrete 0/90-locked or 2-wheel operating modes from rp1-specs/requirements.md -- this is
+  // continuous free-angle swerve only; mode switching is a separate, not-yet-designed layer on
+  // top of this. Mutates last_steering_angle_, so not const.
   void compute_corner_commands(
     const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
-    std::array<double, NUM_CORNERS> & steering_angle) const;
+    std::array<double, NUM_CORNERS> & steering_angle);
 };
 
 }  // namespace rp1_swerve_controller
