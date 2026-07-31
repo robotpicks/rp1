@@ -62,6 +62,14 @@
     <child link="steering_front_left_link"/>
     <origin xyz="0.400000 0.640000 1.221896" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
+    <!-- Placeholder, not yet tuned against real hardware -- CAD-unconfirmed torque/speed limits
+    for the steering actuator's 4:1-reduced output. Continuous joints don't strictly require
+    <limit> per the URDF spec, but omitting it left Gazebo's physics falling back to values too
+    restrictive for the commanded position to actually track in reasonable time (see
+    rp1_swerve_gazebo.launch.py's docstring). damping/friction are similarly untuned guesses,
+    just enough to avoid free-spin instability without adding their own sluggishness. -->
+    <limit effort="10.0" velocity="10.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="wheel_front_left_link">
     <visual>
@@ -85,6 +93,10 @@
     <child link="wheel_front_left_link"/>
     <origin xyz="-0.000097 -0.070694 -1.006500" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
+    <!-- Placeholder, not yet tuned against real hardware -- same reasoning as the steering
+    joints' <limit>/<dynamics> above, for the drive wheel's velocity-controlled joint. -->
+    <limit effort="20.0" velocity="50.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
 
   <!-- Front-right -->
@@ -99,6 +111,14 @@
     <child link="steering_front_right_link"/>
     <origin xyz="0.400000 -0.640000 1.221896" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
+    <!-- Placeholder, not yet tuned against real hardware -- CAD-unconfirmed torque/speed limits
+    for the steering actuator's 4:1-reduced output. Continuous joints don't strictly require
+    <limit> per the URDF spec, but omitting it left Gazebo's physics falling back to values too
+    restrictive for the commanded position to actually track in reasonable time (see
+    rp1_swerve_gazebo.launch.py's docstring). damping/friction are similarly untuned guesses,
+    just enough to avoid free-spin instability without adding their own sluggishness. -->
+    <limit effort="10.0" velocity="10.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="wheel_front_right_link">
     <visual>
@@ -122,6 +142,10 @@
     <child link="wheel_front_right_link"/>
     <origin xyz="0.000097 0.070694 -1.006500" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
+    <!-- Placeholder, not yet tuned against real hardware -- same reasoning as the steering
+    joints' <limit>/<dynamics> above, for the drive wheel's velocity-controlled joint. -->
+    <limit effort="20.0" velocity="50.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
 
   <!-- Rear-left -->
@@ -136,6 +160,14 @@
     <child link="steering_rear_left_link"/>
     <origin xyz="-0.400000 0.640000 1.221896" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
+    <!-- Placeholder, not yet tuned against real hardware -- CAD-unconfirmed torque/speed limits
+    for the steering actuator's 4:1-reduced output. Continuous joints don't strictly require
+    <limit> per the URDF spec, but omitting it left Gazebo's physics falling back to values too
+    restrictive for the commanded position to actually track in reasonable time (see
+    rp1_swerve_gazebo.launch.py's docstring). damping/friction are similarly untuned guesses,
+    just enough to avoid free-spin instability without adding their own sluggishness. -->
+    <limit effort="10.0" velocity="10.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="wheel_rear_left_link">
     <visual>
@@ -159,6 +191,10 @@
     <child link="wheel_rear_left_link"/>
     <origin xyz="-0.000097 -0.070694 -1.006500" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
+    <!-- Placeholder, not yet tuned against real hardware -- same reasoning as the steering
+    joints' <limit>/<dynamics> above, for the drive wheel's velocity-controlled joint. -->
+    <limit effort="20.0" velocity="50.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
 
   <!-- Rear-right -->
@@ -173,6 +209,14 @@
     <child link="steering_rear_right_link"/>
     <origin xyz="-0.400000 -0.640000 1.221896" rpy="0 0 0"/>
     <axis xyz="0 0 1"/>
+    <!-- Placeholder, not yet tuned against real hardware -- CAD-unconfirmed torque/speed limits
+    for the steering actuator's 4:1-reduced output. Continuous joints don't strictly require
+    <limit> per the URDF spec, but omitting it left Gazebo's physics falling back to values too
+    restrictive for the commanded position to actually track in reasonable time (see
+    rp1_swerve_gazebo.launch.py's docstring). damping/friction are similarly untuned guesses,
+    just enough to avoid free-spin instability without adding their own sluggishness. -->
+    <limit effort="10.0" velocity="10.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
   <link name="wheel_rear_right_link">
     <visual>
@@ -196,6 +240,10 @@
     <child link="wheel_rear_right_link"/>
     <origin xyz="0.000097 0.070694 -1.006500" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
+    <!-- Placeholder, not yet tuned against real hardware -- same reasoning as the steering
+    joints' <limit>/<dynamics> above, for the drive wheel's velocity-controlled joint. -->
+    <limit effort="20.0" velocity="50.0"/>
+    <dynamics damping="0.1" friction="0.0"/>
   </joint>
 
   <ros2_control name="rp1_swerve" type="system">
@@ -236,6 +284,13 @@
     <!-- actuator_id = drive esc_index + 4, per docs/can_id_map.md's steering convention. -->
     <joint name="steering_front_left">
       <param name="actuator_id">4</param>
+      <!-- Only read by gz_ros2_control's GazeboSimSystem (the one tunable gain it exposes, per
+      its own ROS parameter declaration) -- ignored by VescDroneCanSystem/mock_components on the
+      other two tiers, same as every other <param> here that's really only meaningful to one
+      hardware plugin. Placeholder, not yet tuned against real hardware: without it (or too low
+      a value), Gazebo's simulated position servo tracked the commanded steering angle sluggishly
+      -- see rp1_swerve_gazebo.launch.py's docstring. -->
+      <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
       <state_interface name="position"/>
@@ -243,6 +298,13 @@
     </joint>
     <joint name="steering_front_right">
       <param name="actuator_id">5</param>
+      <!-- Only read by gz_ros2_control's GazeboSimSystem (the one tunable gain it exposes, per
+      its own ROS parameter declaration) -- ignored by VescDroneCanSystem/mock_components on the
+      other two tiers, same as every other <param> here that's really only meaningful to one
+      hardware plugin. Placeholder, not yet tuned against real hardware: without it (or too low
+      a value), Gazebo's simulated position servo tracked the commanded steering angle sluggishly
+      -- see rp1_swerve_gazebo.launch.py's docstring. -->
+      <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
       <state_interface name="position"/>
@@ -250,6 +312,13 @@
     </joint>
     <joint name="steering_rear_left">
       <param name="actuator_id">6</param>
+      <!-- Only read by gz_ros2_control's GazeboSimSystem (the one tunable gain it exposes, per
+      its own ROS parameter declaration) -- ignored by VescDroneCanSystem/mock_components on the
+      other two tiers, same as every other <param> here that's really only meaningful to one
+      hardware plugin. Placeholder, not yet tuned against real hardware: without it (or too low
+      a value), Gazebo's simulated position servo tracked the commanded steering angle sluggishly
+      -- see rp1_swerve_gazebo.launch.py's docstring. -->
+      <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
       <state_interface name="position"/>
@@ -257,6 +326,13 @@
     </joint>
     <joint name="steering_rear_right">
       <param name="actuator_id">7</param>
+      <!-- Only read by gz_ros2_control's GazeboSimSystem (the one tunable gain it exposes, per
+      its own ROS parameter declaration) -- ignored by VescDroneCanSystem/mock_components on the
+      other two tiers, same as every other <param> here that's really only meaningful to one
+      hardware plugin. Placeholder, not yet tuned against real hardware: without it (or too low
+      a value), Gazebo's simulated position servo tracked the commanded steering angle sluggishly
+      -- see rp1_swerve_gazebo.launch.py's docstring. -->
+      <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
       <state_interface name="position"/>

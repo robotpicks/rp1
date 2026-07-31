@@ -76,6 +76,20 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
     return controller_interface::CallbackReturn::ERROR;
   }
 
+  mode_switch_linear_deceleration_ = node->declare_parameter<double>(
+    "mode_switch_linear_deceleration", mode_switch_linear_deceleration_);
+  mode_switch_angular_deceleration_ = node->declare_parameter<double>(
+    "mode_switch_angular_deceleration", mode_switch_angular_deceleration_);
+  if (mode_switch_linear_deceleration_ <= 0.0 || mode_switch_angular_deceleration_ <= 0.0)
+  {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "mode_switch_linear_deceleration (%f) and mode_switch_angular_deceleration (%f) must both "
+      "be positive",
+      mode_switch_linear_deceleration_, mode_switch_angular_deceleration_);
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
   // CornerIndex order: front_left, front_right, rear_left, rear_right. X forward, Y left
   // (REP-103) -- matches rp1-specs/mechanical_spec.md's steering-axis table.
   corner_position_[FRONT_LEFT] = {half_wheelbase_, half_track_};
@@ -186,6 +200,10 @@ controller_interface::CallbackReturn RP1SwerveController::on_configure(
 
   mode_.store(static_cast<uint8_t>(SwerveMode::FULL_SWERVE));
   active_mode_ = SwerveMode::FULL_SWERVE;
+  mode_switch_ramping_ = false;
+  ramp_vx_ = 0.0;
+  ramp_vy_ = 0.0;
+  ramp_wz_ = 0.0;
   mode_subscriber_ = get_node()->create_subscription<std_msgs::msg::UInt8>(
     "~/mode", rclcpp::SystemDefaultsQoS(),
     [this](const std::shared_ptr<std_msgs::msg::UInt8> msg) { mode_.store(msg->data); });
@@ -498,7 +516,17 @@ void RP1SwerveController::compute_corner_commands(
     }
 
     last_steering_angle_[i] = angle;
-    wheel_velocity[i] = speed;
+    // speed is the body-frame wheel linear speed (m/s) the rigid-body-twist math above computes
+    // -- the velocity COMMAND interface, like the state interface compute_body_twist() reads
+    // back, is angular (rad/s, matching HW_IF_VELOCITY's convention on a rotational joint), so
+    // this needs the same m/s -> rad/s conversion compute_body_twist() applies in reverse
+    // (`wheel_radius_ * state`). Previously missing entirely: every commanded speed was sent
+    // wheel_radius_ times too fast in wheel_velocity's raw units, meaning the physical wheel spun
+    // (and the robot moved) at only wheel_radius_ times the commanded m/s -- e.g. commanding
+    // vx=1.0 m/s actually produced ~0.215 m/s of real motion. Self-consistent with odometry
+    // (which reports whatever the wheel actually did), so this went unnoticed until compared
+    // against the commanded value directly.
+    wheel_velocity[i] = speed / wheel_radius_;
     steering_angle[i] = angle;
   }
 }
@@ -564,9 +592,9 @@ controller_interface::return_type RP1SwerveController::update(
   double wz = 0.0;
   compute_body_twist(vx, vy, wz);
 
-  // Mode-switch safety (rp1-specs/requirements.md's "no ramping, no requirement to be stopped
-  // first, no rejection of a switch mid-turn" gap): a requested mode only becomes the ACTIVE one
-  // once the chassis is confirmed actually stopped, not just commanded to stop -- otherwise
+  // Mode-switch safety (rp1-specs/requirements.md's "no requirement to be stopped first, no
+  // rejection of a switch mid-turn" gap): a requested mode only becomes the ACTIVE one once the
+  // chassis is confirmed actually stopped, not just commanded to stop -- otherwise
   // compute_corner_commands() keeps running the previous mode's kinematics. This is a blanket
   // rule independent of the home_0deg/home_90deg gate inside compute_corner_commands() (which
   // only fires when a corner's target angle isn't yet confirmed); this one covers every mode
@@ -580,16 +608,67 @@ controller_interface::return_type RP1SwerveController::update(
     active_mode_ = requested_mode;
   }
 
+  // Mode-switch ramping (rp1-specs/requirements.md's "no ramping" gap): while a switch is still
+  // pending (requested_mode != active_mode_, i.e. is_stopped was false above and active_mode_
+  // didn't just advance), ignore the raw ~/cmd_vel and instead decelerate ramp_v{x,y}_/ramp_wz_
+  // toward zero every cycle, so a caller that keeps publishing a nonzero twist can't block the
+  // switch forever -- is_stopped is gated on real state feedback next cycle, not on the caller
+  // zeroing cmd_vel by itself. Once the switch commits, mode_switch_pending goes false again and
+  // ~/cmd_vel passes through unchanged, same as before this feature existed.
+  const bool mode_switch_pending = requested_mode != active_mode_;
+  double effective_vx = cmd_vel ? cmd_vel->twist.linear.x : 0.0;
+  double effective_vy = cmd_vel ? cmd_vel->twist.linear.y : 0.0;
+  double effective_wz = cmd_vel ? cmd_vel->twist.angular.z : 0.0;
+  if (mode_switch_pending)
+  {
+    if (!mode_switch_ramping_)
+    {
+      // Just became pending this cycle: freeze the ramp's starting point at THIS cycle's raw
+      // ~/cmd_vel (the most recent real command seen, since it was passing through unchanged up
+      // to and including this cycle) -- not some earlier cycle's value, which wouldn't exist yet
+      // if the mode switch is requested on the very first update() call.
+      ramp_vx_ = effective_vx;
+      ramp_vy_ = effective_vy;
+      ramp_wz_ = effective_wz;
+      mode_switch_ramping_ = true;
+    }
+    const double dt_ramp = period.seconds();
+    auto decelerate_toward_zero = [dt_ramp](double value, double rate) {
+      if (value > 0.0)
+      {
+        return std::max(0.0, value - rate * dt_ramp);
+      }
+      if (value < 0.0)
+      {
+        return std::min(0.0, value + rate * dt_ramp);
+      }
+      return 0.0;
+    };
+    ramp_vx_ = decelerate_toward_zero(ramp_vx_, mode_switch_linear_deceleration_);
+    ramp_vy_ = decelerate_toward_zero(ramp_vy_, mode_switch_linear_deceleration_);
+    ramp_wz_ = decelerate_toward_zero(ramp_wz_, mode_switch_angular_deceleration_);
+    effective_vx = ramp_vx_;
+    effective_vy = ramp_vy_;
+    effective_wz = ramp_wz_;
+  }
+  else
+  {
+    mode_switch_ramping_ = false;
+  }
+
+  TwistStamped effective_cmd_vel{};
+  effective_cmd_vel.twist.linear.x = effective_vx;
+  effective_cmd_vel.twist.linear.y = effective_vy;
+  effective_cmd_vel.twist.angular.z = effective_wz;
+
   std::array<double, NUM_CORNERS> wheel_velocity{};
   std::array<double, NUM_CORNERS> steering_angle{};
   std::array<double, NUM_CORNERS> seek_home_command{};
   // Always compute, even before the first ~/cmd_vel arrives (a zero twist): homing needs to
   // start as soon as a locked mode is requested, not wait on motion commands that may never come
   // if the robot is meant to sit still while it homes.
-  static const TwistStamped kZeroTwist{};
   compute_corner_commands(
-    active_mode_, cmd_vel ? *cmd_vel : kZeroTwist, wheel_velocity, steering_angle,
-    seek_home_command);
+    active_mode_, effective_cmd_vel, wheel_velocity, steering_angle, seek_home_command);
 
   for (std::size_t i = 0; i < NUM_CORNERS; ++i)
   {

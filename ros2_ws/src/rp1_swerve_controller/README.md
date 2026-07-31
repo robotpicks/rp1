@@ -157,25 +157,62 @@ and what it needs to do") for the operating modes this needs to support, and
   comment's occurrence instead of the tag's; and spawners need `--param-file` here exactly like
   the other two tiers already document, even though `gz_ros2_control`'s plugin separately loads
   the same YAML for its own `controller_manager`'s `ros__parameters` (that only covers
-  controller *type* declarations, not each controller's own parameters).
+  controller *type* declarations, not each controller's own parameters). Two further real bugs
+  fixed on top of the above, both discovered while live-testing Gazebo tuning (see the next two
+  bullets):
+- **Units bug in the drive command: `compute_corner_commands()` sent linear m/s straight to the
+  angular (rad/s) velocity command interface.** `compute_body_twist()` (the reverse/odometry
+  path) correctly multiplies the state-reported angular velocity by `wheel_radius` to get linear
+  speed, but the forward/IK path had no matching divide — every commanded speed reached the wheel
+  `wheel_radius` (0.2154) times too fast in the interface's own units, so the physical wheel (and
+  the robot) moved at only `wheel_radius` times the commanded m/s (e.g. `vx=1.0` produced ~0.215
+  m/s of real motion). Invisible before because odometry is self-consistent with whatever the
+  wheel actually did, not compared against the commanded value directly — only surfaced by
+  comparing Gazebo's converged `/joint_states` velocity against the independently-computed
+  expected value while tuning PID gains. Fixed by dividing by `wheel_radius` in
+  `compute_corner_commands()`, matching `compute_body_twist()`'s multiply in reverse. Verified via
+  gtest (all `drive_command` expected values recomputed against the corrected units) and live over
+  Gazebo (`/joint_states` wheel velocity converges to exactly `commanded_m_s / wheel_radius`
+  rad/s, confirmed against `vx=1.0` -> `4.6425` rad/s).
+- **Gazebo PID/physics tuning: the URDF was missing `<limit effort="".../>`/`<dynamics
+  damping="".../>` on every drive and steering joint, and steering had no declared
+  `position_proportional_gain`.** `gz_ros2_control`'s `GazeboSimSystem` only exposes
+  `position_proportional_gain` as a real parameter for position control (confirmed via `strings`
+  on `libgz_ros2_control-system.so` — no separate velocity gain exists in this version); combined
+  with the URDF's total absence of effort/velocity/damping limits, convergence toward a
+  step-changed target was implausibly slow. Fixed by adding `<limit effort="10.0"
+  velocity="10.0"/>` + `<dynamics damping="0.1" friction="0.0"/>` to the 4 steering joints,
+  `<limit effort="20.0" velocity="50.0"/>` + the same damping to the 4 drive joints, and
+  `<param name="position_proportional_gain">50.0</param>` to each steering joint's
+  `<ros2_control>` block — all untuned placeholders, not measured/optimized values, but enough to
+  fix the qualitative sluggishness. Verified live: before/after `/joint_states` comparison showed
+  convergence going from "gradually settles over the whole test window" to "near-instant."
+- **Mode-switch ramping.** Closes the "no ramping" gap `rp1-specs/requirements.md` flagged: the
+  mode-switch-safety gate above only ever *waited* for the chassis to report near-zero twist —
+  it never itself commanded a stop, so a caller that kept publishing a nonzero `~/cmd_vel` could
+  block a requested switch forever. Now, once a switch is pending (`requested_mode !=
+  active_mode_`) and the chassis isn't yet stopped, the raw `~/cmd_vel` is ignored in favor of a
+  ramp: `ramp_vx_`/`ramp_vy_`/`ramp_wz_` are seeded from whatever `~/cmd_vel` said the cycle the
+  switch first became pending, then decelerated toward zero every cycle at
+  `mode_switch_linear_deceleration`/`mode_switch_angular_deceleration` (m/s²/rad/s², both default
+  to reasonable-feeling placeholders, not measured/tuned values) regardless of what `~/cmd_vel`
+  keeps publishing — so the chassis reliably reaches `mode_switch_stopped_tolerance` and the
+  switch lands. Once it does, `~/cmd_vel` passes through unchanged again, same as before this
+  feature existed. Verified via gtest (a strictly-decreasing `drive_command` sequence across
+  several cycles while `~/cmd_vel` keeps holding its original nonzero value, then settling at
+  exactly zero and staying there) and live over Gazebo: requesting `LOCKED_0` while continuously
+  publishing `vx=1.0` showed wheel velocity smoothly decelerating from steady-state (~4.64 rad/s)
+  to zero over ~2s (matching the default deceleration rate), after which steering committed to
+  the locked 0° angle.
 
 ## What's not here yet
 
-- **No ramping/deceleration on a deferred mode switch.** The mode-switch-safety gate above waits
-  for the chassis to report already-near-zero twist before switching — it doesn't itself command
-  a stop or ramp the robot down. If `cmd_vel` never drops below `mode_switch_stopped_tolerance`,
-  the switch simply never takes effect; that's a deliberate choice matching this codebase's
-  general pattern of layering safety checks rather than taking control actions on the caller's
-  behalf (same reasoning as `rp1_teleop`'s deadman button zeroing output instead of commanding a
-  stop), but it does mean an operator (or a higher-level planner) is still responsible for
-  actually slowing the robot down before a mode switch will land.
-- **Gazebo PID gains are untuned defaults.** The 300kg chassis's velocity/position control feels
-  sluggish (wheel velocity takes a noticeable amount of simulated time to converge toward a
-  step-changed target) -- plausible-looking, not yet tuned for realistic response.
+Nothing currently tracked here — the previously-open "no ramping" and "untuned Gazebo PID gains"
+gaps are both closed above.
 
 ## Tests
 
-`test/test_rp1_swerve_controller.cpp` — 18 gtest cases, run via `colcon test --packages-select
+`test/test_rp1_swerve_controller.cpp` — 19 gtest cases, run via `colcon test --packages-select
 rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
 `StateInterface` objects (not a mock hardware component), drives the actual lifecycle
 (`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
@@ -191,7 +228,9 @@ non-gated tests check; a partially-homed corner (3 of 4) still holds the whole c
 gates on its locked pair only, never the free-steering one; and `FULL_SWERVE` never gates
 regardless of home state), the mode-switch-safety gate (a chassis reporting real motion via
 drive/steering state defers a requested switch, adopting it only once state settles near zero;
-a controller that's never received state feedback is treated as already stopped), and
+a controller that's never received state feedback is treated as already stopped), mode-switch
+ramping (a deferred switch's drive command strictly decreases cycle-over-cycle while `~/cmd_vel`
+keeps holding its original nonzero value, settling at exactly zero and staying there), and
 `steering_home_sensors_available:false` (mirroring Gazebo: no seek_home/home_0deg/home_90deg
 interfaces assigned at all, not just unconfirmed) -- the controller still activates and drives
 `FULL_SWERVE` normally, and `LOCKED_0` stays gated at zero across several cycles, not just the
