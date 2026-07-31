@@ -49,6 +49,8 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
   }
   steering_home_sensors_available_ = node->declare_parameter<bool>(
     "steering_home_sensors_available", steering_home_sensors_available_);
+  steering_brake_available_ = node->declare_parameter<bool>(
+    "steering_brake_available", steering_brake_available_);
 
   half_wheelbase_ = node->declare_parameter<double>("half_wheelbase", half_wheelbase_);
   half_track_ = node->declare_parameter<double>("half_track", half_track_);
@@ -140,6 +142,10 @@ RP1SwerveController::command_interface_configuration() const
     {
       config.names.push_back(name + "/seek_home");
     }
+    if (steering_brake_available_)
+    {
+      config.names.push_back(name + "/brake");
+    }
   }
   return config;
 }
@@ -208,6 +214,7 @@ controller_interface::CallbackReturn RP1SwerveController::on_activate(
   drive_velocity_command_.clear();
   steering_position_command_.clear();
   steering_seek_home_command_.clear();
+  steering_brake_command_.clear();
   for (const auto & name : drive_joint_names_)
   {
     auto it = std::find_if(
@@ -258,6 +265,22 @@ controller_interface::CallbackReturn RP1SwerveController::on_activate(
         return controller_interface::CallbackReturn::ERROR;
       }
       steering_seek_home_command_.emplace_back(*seek_home_it);
+    }
+
+    if (steering_brake_available_)
+    {
+      auto brake_it = std::find_if(
+        command_interfaces_.begin(), command_interfaces_.end(),
+        [&name](const auto & iface)
+        { return iface.get_prefix_name() == name && iface.get_interface_name() == "brake"; });
+      if (brake_it == command_interfaces_.end())
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(), "Could not find brake command interface for '%s'",
+          name.c_str());
+        return controller_interface::CallbackReturn::ERROR;
+      }
+      steering_brake_command_.emplace_back(*brake_it);
     }
   }
 
@@ -343,6 +366,7 @@ controller_interface::CallbackReturn RP1SwerveController::on_deactivate(
   drive_velocity_command_.clear();
   steering_position_command_.clear();
   steering_seek_home_command_.clear();
+  steering_brake_command_.clear();
   drive_velocity_state_.clear();
   steering_position_state_.clear();
   steering_home_0deg_state_.clear();
@@ -367,7 +391,8 @@ SwerveMode RP1SwerveController::validate_mode(uint8_t raw)
 void RP1SwerveController::compute_corner_commands(
   SwerveMode mode, const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
   std::array<double, NUM_CORNERS> & steering_angle,
-  std::array<double, NUM_CORNERS> & seek_home_command)
+  std::array<double, NUM_CORNERS> & seek_home_command,
+  std::array<double, NUM_CORNERS> & brake_command)
 {
   const double vx = cmd_vel.twist.linear.x;
   const double vy = cmd_vel.twist.linear.y;
@@ -414,7 +439,10 @@ void RP1SwerveController::compute_corner_commands(
 
     if (!this_locked)
     {
+      // Free-steering corner: actively tracking whatever angle the IK below computes, so the
+      // brake must stay released -- never engage on a corner that needs to be free to turn.
       seek_home_command[i] = std::numeric_limits<double>::quiet_NaN();
+      brake_command[i] = 0.0;
       continue;
     }
 
@@ -436,6 +464,11 @@ void RP1SwerveController::compute_corner_commands(
       seek_home_command[i] = target_is_90deg ? 1.0 : 0.0;
       any_pending_home = true;
     }
+    // Engage the brake exactly when this corner is trustworthy enough to stop actively driving
+    // it (the same "locked && confirmed" condition the drive-zero gate above uses) -- released
+    // while still seeking/unconfirmed, since the firmware's homing_tick() needs the shaft free
+    // to turn during the seek (and, redundantly, releases it itself -- see canard_driver.c).
+    brake_command[i] = confirmed ? 1.0 : 0.0;
   }
 
   for (std::size_t i = 0; i < NUM_CORNERS; ++i)
@@ -583,13 +616,14 @@ controller_interface::return_type RP1SwerveController::update(
   std::array<double, NUM_CORNERS> wheel_velocity{};
   std::array<double, NUM_CORNERS> steering_angle{};
   std::array<double, NUM_CORNERS> seek_home_command{};
+  std::array<double, NUM_CORNERS> brake_command{};
   // Always compute, even before the first ~/cmd_vel arrives (a zero twist): homing needs to
   // start as soon as a locked mode is requested, not wait on motion commands that may never come
   // if the robot is meant to sit still while it homes.
   static const TwistStamped kZeroTwist{};
   compute_corner_commands(
     active_mode_, cmd_vel ? *cmd_vel : kZeroTwist, wheel_velocity, steering_angle,
-    seek_home_command);
+    seek_home_command, brake_command);
 
   for (std::size_t i = 0; i < NUM_CORNERS; ++i)
   {
@@ -615,6 +649,14 @@ controller_interface::return_type RP1SwerveController::update(
       RCLCPP_WARN_THROTTLE(
         get_node()->get_logger(), *get_node()->get_clock(), 1000,
         "Failed to set seek_home command for corner %zu", i);
+    }
+    // Same "no interface at all" reasoning as seek_home above, for steering_brake_available_.
+    if (steering_brake_available_ &&
+        !steering_brake_command_[i].get().set_value(brake_command[i]))
+    {
+      RCLCPP_WARN_THROTTLE(
+        get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        "Failed to set brake command for corner %zu", i);
     }
   }
 

@@ -6,18 +6,18 @@ dynamics solver (inertia, gravity, contact) rather than commands looping straigh
 or a real DroneCAN round-trip with no physics at all.
 
   GazeboSimSystem only backs STANDARD joint interfaces (position/velocity/effort) with a real
-  Gazebo entity -- it has no physical concept of the seek_home command interface or the
+  Gazebo entity -- it has no physical concept of the seek_home/brake command interfaces or the
   home_0deg/home_90deg/ESC-telemetry <gpio> blocks rp1_swerve.urdf also declares (those exist for
   vesc_dronecan_driver's benefit and have no Gazebo-entity equivalent to back them with).
   rp1_swerve_controller's own resource manager refuses to activate a controller that DECLARES an
   interface no hardware component actually exports, so this can't be requested-then-tolerated-
   if-missing -- rp1_swerve_gazebo_overrides.yaml (layered on top of rp1_swerve_controllers.yaml
-  via a second --param-file below) sets steering_home_sensors_available: false, telling the
-  controller not to request them at all here (see its README). Practically this means
-  home_0deg/home_90deg are permanently unconfirmed here, so LOCKED_0/LOCKED_90/TWO_WHEEL are
-  gated at zero drive forever -- the same situation rp1_swerve_mock.launch.py's docstring already
-  describes for the mock tier, for the same reason (nothing simulates the proximity sensors).
-  Only FULL_SWERVE (mode 0, the default) drives here.
+  via a second --param-file below) sets steering_home_sensors_available/steering_brake_available
+  to false, telling the controller not to request either at all here (see its README).
+  Practically this means home_0deg/home_90deg are permanently unconfirmed here, so LOCKED_0/
+  LOCKED_90/TWO_WHEEL are gated at zero drive forever -- the same situation
+  rp1_swerve_mock.launch.py's docstring already describes for the mock tier, for the same reason
+  (nothing simulates the proximity sensors). Only FULL_SWERVE (mode 0, the default) drives here.
 
   headless (default true) runs gz sim server-only (`-s`), no GUI -- this sandbox has no display
   and gz sim's rendering stack needs one even for a mostly-invisible run. Set headless:=false on
@@ -115,8 +115,8 @@ def generate_launch_description():
     # other two tiers: without --param-file here, rp1_swerve_controller's own drive_joints/
     # steering_joints/etc. parameters are simply never declared, and on_init() sees empty lists.
     controllers_config = os.path.join(bringup_share, 'config', 'rp1_swerve_controllers.yaml')
-    # Tells rp1_swerve_controller not to request seek_home/home_0deg/home_90deg at all on this
-    # tier -- see the URDF comment above the <gazebo> plugin tag and this file's own module
+    # Tells rp1_swerve_controller not to request seek_home/home_0deg/home_90deg/brake at all on
+    # this tier -- see the URDF comment above the <gazebo> plugin tag and this file's own module
     # docstring for why GazeboSimSystem can't back them with anything.
     gazebo_overrides_config = os.path.join(
         bringup_share, 'config', 'rp1_swerve_gazebo_overrides.yaml')
