@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    # lyrical (this project's actual dev/target distro -- see CLAUDE.md) pairs with 26.04.
+    runs-on: ubuntu-26.04
+    env:
+      ROS_DISTRO: lyrical
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rp1
+
+      # rp1's workspace depends on two robot-agnostic packages that live in sibling repos, not
+      # under rp1/ros2_ws/src -- elrs_driver and vesc_dronecan_driver, extracted so other robots
+      # can use them (see rp1/CLAUDE.md and robotpicks.sh's ROS_SIBLINGS). Checked out here as
+      # siblings of rp1/ (matching the robotpicks meta-repo's own submodule layout) so colcon can
+      # crawl them as extra --base-paths, same as every local build in this project's history.
+      # Each tracks its own repo's default branch -- if rp1's branch depends on unmerged changes
+      # in one of these (as this branch currently does, pending vesc_dronecan_ros's own PR), this
+      # job is expected to fail until that merges; that's a real, useful signal, not a bug in CI.
+      - uses: actions/checkout@v4
+        with:
+          repository: robotpicks/elrs_ros
+          path: elrs_ros
+
+      - uses: actions/checkout@v4
+        with:
+          repository: robotpicks/vesc_dronecan_ros
+          path: vesc_dronecan_ros
+
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: lyrical
+
+      - name: rosdep install
+        run: |
+          sudo rosdep init || true
+          rosdep update
+          rosdep install --from-paths rp1/ros2_ws/src elrs_ros vesc_dronecan_ros \
+            --ignore-src -r -y
+
+      - name: colcon build
+        run: |
+          source /opt/ros/lyrical/setup.bash
+          cd rp1/ros2_ws
+          colcon build --symlink-install --base-paths src ../../elrs_ros ../../vesc_dronecan_ros
+
+      - name: colcon test
+        run: |
+          source /opt/ros/lyrical/setup.bash
+          cd rp1/ros2_ws
+          colcon test --base-paths src ../../elrs_ros ../../vesc_dronecan_ros
+          colcon test-result --verbose
