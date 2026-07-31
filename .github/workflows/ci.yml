@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    # lyrical (this project's actual dev/target distro -- see CLAUDE.md) pairs with 26.04.
+    runs-on: ubuntu-26.04
+    env:
+      ROS_DISTRO: lyrical
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: rp1
+
+      # rp1's workspace depends on two robot-agnostic packages that live in sibling repos, not
+      # under rp1/ros2_ws/src -- elrs_driver and vesc_dronecan_driver, extracted so other robots
+      # can use them (see rp1/CLAUDE.md and robotpicks.sh's ROS_SIBLINGS). Checked out here as
+      # siblings of rp1/ (matching the robotpicks meta-repo's own submodule layout) so colcon can
+      # crawl them as extra --base-paths, same as every local build in this project's history.
+      # Each tracks its own repo's default branch -- if rp1's branch depends on unmerged changes
+      # in one of these (as this branch currently does, pending vesc_dronecan_ros's own PR), this
+      # job is expected to fail until that merges; that's a real, useful signal, not a bug in CI.
+      - uses: actions/checkout@v4
+        with:
+          repository: robotpicks/elrs_ros
+          path: elrs_ros
+
+      # vesc_dronecan_ros is private -- the default GITHUB_TOKEN a workflow run gets only grants
+      # access to the repo it's running in, not other private repos in the org, so this needs a
+      # PAT with read access stored as a repo secret.
+      - uses: actions/checkout@v4
+        with:
+          repository: robotpicks/vesc_dronecan_ros
+          path: vesc_dronecan_ros
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
+
+      - uses: ros-tooling/setup-ros@v0.7
+        with:
+          required-ros-distributions: lyrical
+
+      # setup-ros only installs ros-<distro>-desktop by default -- the ros2_control stack
+      # (hardware_interface, controller_manager, ...) is a separate metapackage group, not part
+      # of "desktop". Installed explicitly here as a broader safety net alongside rosdep install
+      # below (which already resolves each package's own declared deps correctly), matching the
+      # dev sandbox this project is built/tested in.
+      - name: Install ros2_control metapackages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            ros-lyrical-desktop-full \
+            ros-lyrical-ros2-control \
+            ros-lyrical-ros2-controllers
+
+      - name: rosdep install
+        run: |
+          sudo rosdep init || true
+          rosdep update
+          rosdep install --from-paths rp1/ros2_ws/src elrs_ros vesc_dronecan_ros \
+            --ignore-src -r -y
+
+      - name: colcon build
+        run: |
+          source /opt/ros/lyrical/setup.bash
+          cd rp1/ros2_ws
+          colcon build --symlink-install --base-paths src ../../elrs_ros ../../vesc_dronecan_ros
+
+      - name: colcon test
+        run: |
+          source /opt/ros/lyrical/setup.bash
+          cd rp1/ros2_ws
+          colcon test --base-paths src ../../elrs_ros ../../vesc_dronecan_ros
+          colcon test-result --verbose

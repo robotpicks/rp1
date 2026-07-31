@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rp1_swerve_controller</name>
+  <version>0.0.1</version>
+  <description>
+    ros2_control controller_interface plugin for rp1's 4-corner swerve base: 4 drive velocity
+    command interfaces + 4 steering position command interfaces, driven from a single
+    geometry_msgs/TwistStamped cmd_vel, with real inverse kinematics and odometry (forward
+    kinematics from wheel/steering state, published as nav_msgs/Odometry + an odom->base_link
+    TF). See the README for what's implemented vs. still open (the 0/90-locked and 2-wheel
+    operating modes from rp1-specs/requirements.md, the seek_home/home_* interfaces).
+  </description>
+  <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>controller_interface</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>realtime_tools</depend>
+  <depend>std_msgs</depend>
+  <depend>tf2_ros</depend>
+
+  <test_depend>ament_cmake_gmock</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+    <controller_interface plugin="${prefix}/rp1_swerve_controller.xml"/>
+  </export>
+</package>

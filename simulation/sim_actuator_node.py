@@ -28,13 +28,22 @@ MAX_STEERING_RATE_RAD_S = 6.0
 NOMINAL_VOLTAGE = 24.0
 
 
-def _patch_python_can_flush_tx_buffer() -> None:
-    """dronecan's python-can driver calls bus.flush_tx_buffer() after every send, but
-    python-can >=4's BusABC no longer implements it for any interface (raises
-    NotImplementedError), which otherwise kills the writer thread on the first broadcast.
+def _force_native_socketcan_driver() -> None:
+    """dronecan.driver.make_driver() always prefers its python-can-backed PythonCAN driver over
+    the native SocketCAN one whenever the `can` package is merely importable (see
+    dronecan/driver/__init__.py's make_driver(): `elif PythonCAN is not None: return
+    PythonCAN(...)` runs before the SocketCAN fallback, and PythonCAN is non-None as long as
+    `import can` succeeded, regardless of which python-can version). Confirmed broken against
+    python-can 4.6.1 -- not just the flush_tx_buffer() incompatibility this function used to
+    patch around (python-can >=4's BusABC no longer implements it), but something deeper:
+    node.broadcast() silently queues a frame that never reaches the bus at all, and node.spin()
+    then hangs indefinitely rather than timing out. Forcing dronecan.driver.PythonCAN to None
+    here makes make_driver() fall through to the native SocketCAN class instead (Linux-only, no
+    python-can involved), which was confirmed to actually place frames on the bus and complete
+    spin() normally. Must run before dronecan.make_node() below.
     """
-    import can
-    can.bus.BusABC.flush_tx_buffer = lambda self: None
+    import dronecan.driver
+    dronecan.driver.PythonCAN = None
 
 
 def _normalize_angle(angle: float) -> float:
@@ -75,9 +84,9 @@ def main():
     actuator_ids = [int(x) for x in args.actuator_ids.split(',')]
     actuators = {actuator_id: SimulatedActuator() for actuator_id in actuator_ids}
 
-    _patch_python_can_flush_tx_buffer()
-    # bitrate is required by this dronecan version's python-can driver even for SocketCAN,
-    # which actually ignores it (the interface's real bitrate is set via `ip link`).
+    _force_native_socketcan_driver()
+    # bitrate is accepted for API compatibility but ignored by the native SocketCAN driver (the
+    # interface's real bitrate is set via `ip link`).
     node = dronecan.make_node(args.iface, node_id=args.node_id, bitrate=1000000)
 
     def on_array_command(event):
