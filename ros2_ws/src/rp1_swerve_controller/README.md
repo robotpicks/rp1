@@ -81,8 +81,19 @@ and what it needs to do") for the operating modes this needs to support, and
   or Gazebo physics yet — only the mock-hardware bringup exists so far. On mock hardware the
   odometry above is computed from state that's just last cycle's command looped back, not real
   sensor feedback -- a meaningfully different trust level once real VESC feedback is in the loop.
-- No automated tests (the IK/odometry have been verified by hand and via live `ros2 topic pub` +
-  `/joint_states`/`~/odom`/TF inspection, not a gtest suite).
+
+## Tests
+
+`test/test_rp1_swerve_controller.cpp` — 9 gtest cases, run via `colcon test --packages-select
+rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
+`StateInterface` objects (not a mock hardware component), drives the actual lifecycle
+(`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
+publishers spun through a `SingleThreadedExecutor` (not direct field writes) so the subscription
+wiring itself is exercised, not just the math. Covers straight/crab/turn-in-place (including
+asserting the angle-flip optimization's exact expected values on the two corners where it should
+engage), `LOCKED_0`/`LOCKED_90`, `TWO_WHEEL` with both the default and an overridden
+`two_wheel_steered_corners` pair, the out-of-range-mode fallback, and odometry (drives state
+interfaces directly, subscribes `~/odom`, checks the published value).
 
 Not chainable (`controller_interface::ControllerInterface`, not `ChainableControllerInterface`)
 — unlike this ROS 2 release's `diff_drive_controller`/`mecanum_drive_controller`. Revisit only if
