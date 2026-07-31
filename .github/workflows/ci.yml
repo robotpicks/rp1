@@ -41,6 +41,19 @@ jobs:
         with:
           required-ros-distributions: lyrical
 
+      # setup-ros only installs ros-<distro>-desktop by default -- the ros2_control stack
+      # (hardware_interface, controller_manager, ...) is a separate metapackage group, not part
+      # of "desktop". Installed explicitly here as a broader safety net alongside rosdep install
+      # below (which already resolves each package's own declared deps correctly), matching the
+      # dev sandbox this project is built/tested in.
+      - name: Install ros2_control metapackages
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            ros-lyrical-desktop-full \
+            ros-lyrical-ros2-control \
+            ros-lyrical-ros2-controllers
+
       - name: rosdep install
         run: |
           sudo rosdep init || true
