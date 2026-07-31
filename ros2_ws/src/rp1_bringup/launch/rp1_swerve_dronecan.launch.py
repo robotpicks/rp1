@@ -33,6 +33,14 @@ VESCs or Gazebo.
   (not just the 2 extension fields) whenever the home_0deg/home_90deg private-extension bits
   were absent -- which they always are from a standard, non-extended sender like
   sim_actuator_node.py. See that repo's swerve-branch history for each fix.
+
+  Publishing ~/mode=1/2/3 (LOCKED_0/LOCKED_90/TWO_WHEEL) here will NOT actually drive the
+  wheels: rp1_swerve_controller's homing gate correctly holds every drive wheel at zero until
+  home_0deg/home_90deg confirms the reference, and since sim_actuator_node.py can't populate
+  those bits (same limitation as the paragraph above), it never will over this launch file --
+  confirmed via a raw DroneCAN sniff that switching modes does send exactly one
+  COMMAND_TYPE_HOME actuator.ArrayCommand entry per corner (not resent every cycle), which the
+  simulator receives but can't act on. Only FULL_SWERVE (mode 0, the default) drives here.
 """
 import os
 import re

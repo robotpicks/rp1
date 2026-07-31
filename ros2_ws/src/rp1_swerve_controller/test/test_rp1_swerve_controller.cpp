@@ -61,6 +61,8 @@ public:
                     "drive_rear_right"};
     steering_names_ = {"steering_front_left", "steering_front_right", "steering_rear_left",
                        "steering_rear_right"};
+    home_sensor_names_ = {"steering_sensors_front_left", "steering_sensors_front_right",
+                          "steering_sensors_rear_left", "steering_sensors_rear_right"};
 
     for (const auto & name : drive_names_)
     {
@@ -71,6 +73,16 @@ public:
     {
       steering_position_command_.push_back(make_command_interface(name, "position"));
       steering_position_state_.push_back(make_state_interface(name, "position"));
+      steering_seek_home_command_.push_back(make_command_interface(name, "seek_home"));
+    }
+    for (const auto & name : home_sensor_names_)
+    {
+      // Default to "not confirmed" (0.0/false), matching a fresh hardware bring-up that hasn't
+      // homed yet -- tests that exercise LOCKED_0/LOCKED_90/TWO_WHEEL's actual IK math must
+      // explicitly mark the relevant corners homed first (see set_home_0deg/set_home_90deg), or
+      // the new homing gate in compute_corner_commands() holds every drive command at zero.
+      steering_home_0deg_state_.push_back(make_state_interface(name, "home_0deg"));
+      steering_home_90deg_state_.push_back(make_state_interface(name, "home_90deg"));
     }
   }
 
@@ -106,8 +118,11 @@ public:
     std::vector<hardware_interface::LoanedStateInterface> state_interfaces;
     for (auto & iface : drive_velocity_command_) command_interfaces.emplace_back(iface);
     for (auto & iface : steering_position_command_) command_interfaces.emplace_back(iface);
+    for (auto & iface : steering_seek_home_command_) command_interfaces.emplace_back(iface);
     for (auto & iface : drive_velocity_state_) state_interfaces.emplace_back(iface);
     for (auto & iface : steering_position_state_) state_interfaces.emplace_back(iface);
+    for (auto & iface : steering_home_0deg_state_) state_interfaces.emplace_back(iface);
+    for (auto & iface : steering_home_90deg_state_) state_interfaces.emplace_back(iface);
     controller->assign_interfaces(std::move(command_interfaces), std::move(state_interfaces));
 
     if (!controller_interface::activate_succeeds(controller))
@@ -189,12 +204,41 @@ public:
       std::numeric_limits<double>::quiet_NaN());
   }
 
+  double seek_home_command(std::size_t corner_index) const
+  {
+    return steering_seek_home_command_[corner_index]->get_optional<double>().value_or(
+      std::numeric_limits<double>::quiet_NaN());
+  }
+
+  // Sets every corner's home_0deg (or home_90deg) gpio state, simulating a hardware bring-up
+  // that has already homed -- tests exercising LOCKED_0/LOCKED_90/TWO_WHEEL's actual IK math (as
+  // opposed to the homing gate itself) call this first so the new gate in
+  // compute_corner_commands() doesn't hold every drive command at zero.
+  void set_all_home_0deg(bool confirmed)
+  {
+    for (auto & iface : steering_home_0deg_state_)
+    {
+      ASSERT_TRUE(iface->set_value<double>(confirmed ? 1.0 : 0.0));
+    }
+  }
+  void set_all_home_90deg(bool confirmed)
+  {
+    for (auto & iface : steering_home_90deg_state_)
+    {
+      ASSERT_TRUE(iface->set_value<double>(confirmed ? 1.0 : 0.0));
+    }
+  }
+
   std::vector<std::string> drive_names_;
   std::vector<std::string> steering_names_;
+  std::vector<std::string> home_sensor_names_;
   std::vector<hardware_interface::CommandInterface::SharedPtr> drive_velocity_command_;
   std::vector<hardware_interface::StateInterface::SharedPtr> drive_velocity_state_;
   std::vector<hardware_interface::CommandInterface::SharedPtr> steering_position_command_;
   std::vector<hardware_interface::StateInterface::SharedPtr> steering_position_state_;
+  std::vector<hardware_interface::CommandInterface::SharedPtr> steering_seek_home_command_;
+  std::vector<hardware_interface::StateInterface::SharedPtr> steering_home_0deg_state_;
+  std::vector<hardware_interface::StateInterface::SharedPtr> steering_home_90deg_state_;
 };
 
 // CornerIndex order used throughout: front_left, front_right, rear_left, rear_right.
@@ -261,6 +305,7 @@ TEST_F(RP1SwerveControllerTest, Locked0IgnoresLateralAndSkidSteers)
   auto controller = bring_up();
   ASSERT_NE(controller, nullptr);
 
+  set_all_home_0deg(true);  // already homed -- isolates this test to the locked-projection math
   publish_mode(*controller, 1);  // LOCKED_0
   publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
   rclcpp::Duration period(std::chrono::milliseconds(20));
@@ -285,6 +330,7 @@ TEST_F(RP1SwerveControllerTest, Locked90IgnoresForwardAndCrabsWithFrontRearSplit
   auto controller = bring_up();
   ASSERT_NE(controller, nullptr);
 
+  set_all_home_90deg(true);  // already homed -- isolates this test to the locked-projection math
   publish_mode(*controller, 2);  // LOCKED_90
   publish_cmd_vel(*controller, 0.0, 0.5, 0.3);
   rclcpp::Duration period(std::chrono::milliseconds(20));
@@ -307,6 +353,7 @@ TEST_F(RP1SwerveControllerTest, TwoWheelDefaultPairIsFrontFreeRearLocked)
   auto controller = bring_up();
   ASSERT_NE(controller, nullptr);
 
+  set_all_home_0deg(true);  // locked pair's reference already confirmed
   publish_mode(*controller, 3);  // TWO_WHEEL
   publish_cmd_vel(*controller, 0.5, 0.2, 0.1);
   rclcpp::Duration period(std::chrono::milliseconds(20));
@@ -343,6 +390,157 @@ TEST_F(RP1SwerveControllerTest, TwoWheelCustomPairMovesWhichCornersAreLocked)
   EXPECT_NEAR(steering_command(1), 0.0, 1e-9);  // front_right, now locked
   EXPECT_NE(steering_command(2), 0.0);   // rear_left, free
   EXPECT_NEAR(steering_command(3), 0.0, 1e-9);  // rear_right, still locked
+}
+
+TEST_F(RP1SwerveControllerTest, Locked0BlocksDriveAndRequestsSeekHomeUntilConfirmed)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Fresh bring-up: home_0deg defaults to false/unconfirmed (see SetUp()'s comment). Switching
+  // into LOCKED_0 must NOT immediately drive on an unverified locked angle (rp1-specs/
+  // requirements.md's "Transitioning between the two locked configurations..." note) -- every
+  // drive wheel should be held at zero and a fresh seek_home(0.0) request issued instead.
+  publish_mode(*controller, 1);  // LOCKED_0
+  publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 0.0, 1e-9) << "corner " << i << " should be held while unhomed";
+    EXPECT_NEAR(seek_home_command(i), 0.0, 1e-9)
+      << "corner " << i << " should request a seek to the 0deg reference";
+  }
+
+  // Now confirm the physical reference on every corner (as if the firmware's homing_tick() just
+  // completed) and re-run: driving should resume exactly as if it had been homed all along, and
+  // no further seek_home request should be pending (NaN = no active request).
+  set_all_home_0deg(true);
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  EXPECT_NEAR(drive_command(0), 0.308, 1e-9);
+  EXPECT_NEAR(drive_command(1), 0.692, 1e-9);
+  EXPECT_NEAR(drive_command(2), 0.308, 1e-9);
+  EXPECT_NEAR(drive_command(3), 0.692, 1e-9);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, Locked90BlocksDriveUntilConfirmedAtNinetyDegrees)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  publish_mode(*controller, 2);  // LOCKED_90
+  publish_cmd_vel(*controller, 0.0, 0.5, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 0.0, 1e-9) << "corner " << i << " should be held while unhomed";
+    EXPECT_NEAR(seek_home_command(i), 1.0, 1e-9)
+      << "corner " << i << " should request a seek to the 90deg reference";
+  }
+
+  set_all_home_90deg(true);
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  EXPECT_NEAR(drive_command(0), 0.62, 1e-9);
+  EXPECT_NEAR(drive_command(1), 0.62, 1e-9);
+  EXPECT_NEAR(drive_command(2), 0.38, 1e-9);
+  EXPECT_NEAR(drive_command(3), 0.38, 1e-9);
+}
+
+TEST_F(RP1SwerveControllerTest, Locked0PartiallyHomedStillBlocksAllDrive)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Only 3 of 4 corners confirmed -- the whole chassis must still stay put, not just the one
+  // unconfirmed corner (mixing a confirmed and unconfirmed locked wheel would scrub/drag if the
+  // drive wheels moved).
+  ASSERT_TRUE(steering_home_0deg_state_[0]->set_value<double>(1.0));
+  ASSERT_TRUE(steering_home_0deg_state_[1]->set_value<double>(1.0));
+  ASSERT_TRUE(steering_home_0deg_state_[2]->set_value<double>(1.0));
+  ASSERT_TRUE(steering_home_0deg_state_[3]->set_value<double>(0.0));
+
+  publish_mode(*controller, 1);  // LOCKED_0
+  publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 0.0, 1e-9) << "corner " << i;
+  }
+  EXPECT_TRUE(std::isnan(seek_home_command(0)));  // already confirmed, no active request
+  EXPECT_NEAR(seek_home_command(3), 0.0, 1e-9);   // still seeking
+}
+
+TEST_F(RP1SwerveControllerTest, TwoWheelOnlyLockedPairGatesDrive)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Default two_wheel_steered_corners is the front pair -- rear corners are the locked ones and
+  // need home_0deg; front corners free-steer and never gate on anything.
+  publish_mode(*controller, 3);  // TWO_WHEEL
+  publish_cmd_vel(*controller, 0.5, 0.2, 0.1);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  // Unconfirmed rear (locked) pair holds the whole chassis, including the free front corners.
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 0.0, 1e-9) << "corner " << i;
+  }
+  EXPECT_TRUE(std::isnan(seek_home_command(0)));  // front_left, free -- never requests a seek
+  EXPECT_TRUE(std::isnan(seek_home_command(1)));  // front_right, free
+  EXPECT_NEAR(seek_home_command(2), 0.0, 1e-9);   // rear_left, locked, unconfirmed
+  EXPECT_NEAR(seek_home_command(3), 0.0, 1e-9);   // rear_right, locked, unconfirmed
+
+  set_all_home_0deg(true);
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+  EXPECT_NEAR(drive_command(2), 0.436, 1e-9);
+  EXPECT_NEAR(drive_command(3), 0.564, 1e-9);
+}
+
+TEST_F(RP1SwerveControllerTest, FullSwerveNeverGatesOnHoming)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Default mode is FULL_SWERVE, and home_0deg/home_90deg default to unconfirmed -- full swerve
+  // has no fixed reference angle to verify, so it must drive immediately regardless.
+  publish_cmd_vel(*controller, 1.0, 0.0, 0.0);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
+    EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
+  }
 }
 
 TEST_F(RP1SwerveControllerTest, UnrecognizedModeFallsBackToFullSwerve)

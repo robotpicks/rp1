@@ -73,11 +73,23 @@ protected:
   // list grows past what's here (see the package README).
   std::vector<std::string> drive_joint_names_;
   std::vector<std::string> steering_joint_names_;
+  // <gpio> prefix names carrying home_0deg/home_90deg, one per corner, CornerIndex order --
+  // matches rp1_swerve.urdf's steering_sensors_* gpio blocks. A separate parameter from
+  // steering_joint_names_ (not derived from it) since these are gpio interfaces on their own
+  // block, not the steering joint's own state interfaces. Default matches the current URDF's
+  // naming convention.
+  std::vector<std::string> steering_home_sensor_names_{
+    "steering_sensors_front_left", "steering_sensors_front_right", "steering_sensors_rear_left",
+    "steering_sensors_rear_right"};
 
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     drive_velocity_command_;
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     steering_position_command_;
+  // Edge-triggered per vesc_dronecan_driver's convention (write 0.0/1.0 to request a seek, NaN
+  // means "no active request this cycle") -- see compute_corner_commands().
+  std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
+    steering_seek_home_command_;
 
   // State feedback, read each update() to compute odometry -- NOT used by
   // compute_corner_commands() (the IK is open-loop from cmd_vel, same as before). On mock
@@ -87,6 +99,15 @@ protected:
     drive_velocity_state_;
   std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>
     steering_position_state_;
+  // 0/90-degree home-switch state, one pair of <gpio> interfaces per corner (rp1_swerve.urdf's
+  // steering_sensors_* blocks -- named via the steering_home_sensors parameter, NOT the steering
+  // joint name, since these live on a separate gpio block). Read live every cycle to gate locked-
+  // mode transitions -- see compute_corner_commands()'s header comment for why no separate
+  // "have we ever homed" bookkeeping is needed beyond this.
+  std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>
+    steering_home_0deg_state_;
+  std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>
+    steering_home_90deg_state_;
 
   rclcpp::Subscription<TwistStamped>::SharedPtr cmd_vel_subscriber_;
   realtime_tools::RealtimeThreadSafeBox<std::shared_ptr<TwistStamped>> input_cmd_vel_{nullptr};
@@ -164,9 +185,21 @@ private:
   // rigid-body-twist vector onto that fixed direction, which is exactly the standard skid-steer
   // differential-drive formula when the fixed angle is 0. Mutates last_steering_angle_, so not
   // const.
+  //
+  // Homing gate (rp1-specs/requirements.md's "Transitioning between the two locked
+  // configurations..." note): a corner locked to a fixed angle this mode is only trusted once
+  // its home_0deg/home_90deg gpio state confirms it's physically there -- read live every cycle,
+  // no separate "have we ever homed" bookkeeping needed, since a corner that later drives away
+  // from the reference (e.g. back in FULL_SWERVE) naturally stops reporting it and re-gates the
+  // next time a locked mode needs it. While ANY locked corner isn't yet confirmed, every drive
+  // wheel's speed is held at zero (the chassis doesn't translate while a corner's reference is
+  // unconfirmed) and seek_home_command carries 0.0/1.0 for that corner (NaN = no active
+  // request, matching vesc_dronecan_driver's edge-triggered convention) -- the corner's steering
+  // position command still targets the locked angle as usual, so it can visibly seek in place.
   void compute_corner_commands(
     const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
-    std::array<double, NUM_CORNERS> & steering_angle);
+    std::array<double, NUM_CORNERS> & steering_angle,
+    std::array<double, NUM_CORNERS> & seek_home_command);
 };
 
 }  // namespace rp1_swerve_controller

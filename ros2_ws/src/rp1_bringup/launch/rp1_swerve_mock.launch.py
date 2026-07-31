@@ -18,6 +18,15 @@ real VESCs.
   nothing to point at a virtual bus. Unlike rp1_mvp.launch.py this file has no use_mock:=false
   path yet either -- pointing rp1_swerve.urdf's DroneCAN plugin at real/virtual hardware and
   driving the full 4-actuator ArrayCommand is follow-up work, not done here.
+
+  Publishing ~/mode=1/2/3 (LOCKED_0/LOCKED_90/TWO_WHEEL) here will NOT actually drive the wheels:
+  mock hardware's home_0deg/home_90deg gpio state has nothing simulating the proximity sensors,
+  so it never reports "confirmed" and rp1_swerve_controller's homing gate correctly holds every
+  drive wheel at zero indefinitely, including TWO_WHEEL's free-steering pair (the gate is global
+  once any locked corner is unconfirmed, not just the corners that need the reference -- see
+  rp1_swerve_controller/README.md's homing-gated locked-mode transitions section). This is the
+  gate working as intended, not a bug. Only FULL_SWERVE (mode 0, the default) drives here, since
+  it has no fixed reference to confirm.
 """
 import os
 import re

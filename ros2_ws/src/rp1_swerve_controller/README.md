@@ -41,13 +41,38 @@ and what it needs to do") for the operating modes this needs to support, and
     visually fixed at its locked angle, not flip to the opposite angle with reversed speed even
     though that's motion-equivalent. Unrecognized `~/mode` values fail safe to `FULL_SWERVE`
     rather than erroring.
-  - Verified live against the mock bringup: `LOCKED_0`/`LOCKED_90`/`TWO_WHEEL` all produced
+  - Verified (gtest, with the corners' `home_0deg`/`home_90deg` pre-confirmed so the homing gate
+    below doesn't mask the math being checked): `LOCKED_0`/`LOCKED_90`/`TWO_WHEEL` all produced
     exact numeric matches to hand-calculated expected wheel speeds/angles (including the
     front/rear or left/right differential split from `wz`), switching back to `FULL_SWERVE` —
     and an out-of-range mode value — both correctly fall back to the unconstrained IK, and
     overriding `two_wheel_steered_corners` to a non-default pair (`front_left`/`rear_left`,
     a front+rear diagonal-ish pair rather than the default front pair) correctly moved which 2
     corners free-steer.
+- **Homing-gated locked-mode transitions.** Fixes the gap `rp1-specs/requirements.md` flagged
+  ("a mode switch takes effect immediately based on whatever angle the controller last
+  commanded, not a verified position"): `compute_corner_commands()` reads each locked corner's
+  live `home_0deg`/`home_90deg` `<gpio>` state every cycle (no separate "have we ever homed"
+  bookkeeping needed — a corner that later drives off the reference naturally stops reporting it
+  and re-gates the next time a locked mode needs it), via the `steering_home_sensors` parameter
+  (4 gpio prefix names, defaulting to `rp1_swerve.urdf`'s `steering_sensors_*` naming). While
+  *any* corner that needs a fixed reference for the current mode isn't yet confirmed there, every
+  drive wheel is held at zero (the whole chassis, not just that corner — a mix of confirmed and
+  unconfirmed locked wheels would drag/scrub if the drive wheels moved) and the corner's
+  `seek_home` command interface carries `0.0`/`1.0` (edge-triggered, matching
+  `vesc_dronecan_driver`'s convention — `NaN` means no active request, written once confirmed or
+  when the corner isn't locked at all this mode). The corner's steering position command still
+  targets the locked angle as usual, so it visibly rotates in place to seek its sensor even
+  though the chassis doesn't translate. `FULL_SWERVE` never gates on anything (no fixed
+  reference to verify). Verified both via gtest (an unhomed `LOCKED_0`/`LOCKED_90` switch holds
+  all 4 wheels at zero and requests the right `seek_home` target; confirming the sensor resumes
+  driving with the exact previously-verified locked-mode numbers; a partially-homed corner still
+  holds the whole chassis; `TWO_WHEEL`'s free-steering pair never gates) and live: against
+  `rp1_swerve_mock.launch.py` (mock hardware never confirms homing, since nothing simulates the
+  proximity sensors, so `LOCKED_0` correctly holds `/joint_states` at zero indefinitely) and
+  against `rp1_swerve_dronecan.launch.py` over `vcan0` (same zero-hold, plus a raw DroneCAN
+  sniff confirmed exactly one `COMMAND_TYPE_HOME` `actuator.ArrayCommand` entry per corner
+  reaches the wire — not resent every cycle — when switching into `LOCKED_0`).
 - **Odometry.** `compute_body_twist()` reads back drive velocity + steering position *state*
   (`wheel_radius` param converts angular velocity to linear speed) and solves the same
   rigid-body-twist equations as the IK, in reverse — exact for this controller's always-
@@ -66,17 +91,12 @@ and what it needs to do") for the operating modes this needs to support, and
 
 ## What's not here yet
 
-- **No verified/homed-position gating on locked modes.** Nothing here checks
-  `home_0deg`/`home_90deg` before or after commanding `LOCKED_0`/`LOCKED_90` — a mode switch
-  commands the locked angle immediately based on `last_steering_angle_`'s current value, not a
-  confirmed physical reference. `requirements.md`'s note that transitioning between locked
-  configurations should happen by rotating in place (and presumably being confirmed by the
-  proximity switches) isn't implemented as a state machine here.
-- **`seek_home`/`home_0deg`/`home_90deg` aren't read** — the 0°/90° proximity sensors and homing
-  command from `rp1_swerve.urdf` exist but nothing here consumes them yet.
-- **No mode-switch safety handling** — switching modes while the robot is moving takes effect
-  on the next control cycle with whatever `cmd_vel` happens to be current; there's no ramping,
-  no requirement to be stopped first, no rejection of a switch mid-turn.
+- **No mode-switch safety handling beyond the homing gate above** — a switch INTO `LOCKED_0`/
+  `LOCKED_90`/`TWO_WHEEL` while already homed at the target angle (or switching between two
+  modes needing the *same* angle, e.g. `LOCKED_0`→`TWO_WHEEL`) takes effect immediately with
+  whatever `cmd_vel` is current; there's no ramping, no requirement to be stopped first, no
+  rejection of a switch mid-turn. The homing gate only helps when the target angle isn't yet
+  physically confirmed.
 - Not wired into Gazebo physics yet.
 - **Real DroneCAN hardware path verified for both drive and steering.**
   `rp1_swerve_dronecan.launch.py` (against `vesc_dronecan_driver`, real wire framing over
@@ -101,7 +121,7 @@ and what it needs to do") for the operating modes this needs to support, and
 
 ## Tests
 
-`test/test_rp1_swerve_controller.cpp` — 9 gtest cases, run via `colcon test --packages-select
+`test/test_rp1_swerve_controller.cpp` — 14 gtest cases, run via `colcon test --packages-select
 rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
 `StateInterface` objects (not a mock hardware component), drives the actual lifecycle
 (`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
@@ -109,8 +129,13 @@ publishers spun through a `SingleThreadedExecutor` (not direct field writes) so 
 wiring itself is exercised, not just the math. Covers straight/crab/turn-in-place (including
 asserting the angle-flip optimization's exact expected values on the two corners where it should
 engage), `LOCKED_0`/`LOCKED_90`, `TWO_WHEEL` with both the default and an overridden
-`two_wheel_steered_corners` pair, the out-of-range-mode fallback, and odometry (drives state
-interfaces directly, subscribes `~/odom`, checks the published value).
+`two_wheel_steered_corners` pair, the out-of-range-mode fallback, odometry (drives state
+interfaces directly, subscribes `~/odom`, checks the published value), and the homing gate: an
+unhomed `LOCKED_0`/`LOCKED_90` switch holds every drive wheel at zero and issues the right
+`seek_home` target, confirming the sensor afterward resumes driving with the same numbers the
+non-gated tests check; a partially-homed corner (3 of 4) still holds the whole chassis; `TWO_WHEEL`
+gates on its locked pair only, never the free-steering one; and `FULL_SWERVE` never gates
+regardless of home state.
 
 Not chainable (`controller_interface::ControllerInterface`, not `ChainableControllerInterface`)
 — unlike this ROS 2 release's `diff_drive_controller`/`mecanum_drive_controller`. Revisit only if
