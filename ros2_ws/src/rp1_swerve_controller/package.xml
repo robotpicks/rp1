@@ -26,6 +26,9 @@
   <depend>std_msgs</depend>
   <depend>tf2_ros</depend>
 
+  <test_depend>ament_cmake_gmock</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+
   <export>
     <build_type>ament_cmake</build_type>
     <controller_interface plugin="${prefix}/rp1_swerve_controller.xml"/>

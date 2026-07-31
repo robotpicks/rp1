@@ -55,6 +55,17 @@ ament_export_dependencies(controller_interface pluginlib rclcpp rclcpp_lifecycle
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()
+
+  find_package(ament_cmake_gmock REQUIRED)
+  ament_add_gmock(test_rp1_swerve_controller test/test_rp1_swerve_controller.cpp)
+  target_link_libraries(test_rp1_swerve_controller
+    rp1_swerve_controller
+    controller_interface::controller_interface
+    rclcpp::rclcpp
+    ${geometry_msgs_TARGETS}
+    ${nav_msgs_TARGETS}
+    ${std_msgs_TARGETS}
+  )
 endif()
 
 ament_package()
