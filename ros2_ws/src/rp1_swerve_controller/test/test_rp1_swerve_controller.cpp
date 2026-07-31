@@ -229,6 +229,25 @@ public:
     }
   }
 
+  // Drives every drive/steering STATE interface to a uniform (velocity, angle) pair -- i.e. all
+  // 4 corners "reporting" the same wheel speed pointed the same direction, so
+  // compute_body_twist() recovers a pure vx of `velocity_rad_s * wheel_radius` (default
+  // wheel_radius is 0.2154) with vy=wz=0. Used to simulate "the chassis is actually moving" (or
+  // not) for the mode-switch-safety gate, independent of whatever's been commanded -- this test
+  // harness has no hardware component looping commands back to state, so state has to be driven
+  // by hand.
+  void set_uniform_drive_state(double velocity_rad_s, double angle_rad = 0.0)
+  {
+    for (auto & iface : drive_velocity_state_)
+    {
+      ASSERT_TRUE(iface->set_value<double>(velocity_rad_s));
+    }
+    for (auto & iface : steering_position_state_)
+    {
+      ASSERT_TRUE(iface->set_value<double>(angle_rad));
+    }
+  }
+
   std::vector<std::string> drive_names_;
   std::vector<std::string> steering_names_;
   std::vector<std::string> home_sensor_names_;
@@ -430,6 +449,74 @@ TEST_F(RP1SwerveControllerTest, Locked0BlocksDriveAndRequestsSeekHomeUntilConfir
   for (std::size_t i = 0; i < 4; ++i)
   {
     EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, ModeSwitchDeferredWhileChassisIsMovingThenTakesEffectOnceStopped)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Already homed at 0deg -- isolates this test to the mode-switch-safety gate, not the homing
+  // gate (both apply independently; see active_mode_'s header comment).
+  set_all_home_0deg(true);
+  // Simulate the chassis actually moving: 5 rad/s * wheel_radius (0.2154) ~= 1.08 m/s, well
+  // above mode_switch_stopped_tolerance_'s 0.02 default.
+  set_uniform_drive_state(5.0, 0.0);
+
+  publish_mode(*controller, 1);  // LOCKED_0
+  publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  // Still moving -> the switch to LOCKED_0 must not have taken effect yet: this is exactly the
+  // same (vx=0.5, vy=0, wz=0.3) cmd_vel as TurnInPlaceAngleFlipOptimizationEngages-style inputs,
+  // so FULL_SWERVE's IK should still be running, meaning steering angles are NOT pinned to 0.
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NE(steering_command(i), 0.0) << "corner " << i << " should still be free (FULL_SWERVE)";
+  }
+
+  // Now the chassis reports actually stopped -- the deferred switch should take effect on the
+  // very next cycle, producing the exact same numbers Locked0IgnoresLateralAndSkidSteers checks.
+  set_uniform_drive_state(0.0, 0.0);
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
+  }
+  EXPECT_NEAR(drive_command(0), 0.308, 1e-9);
+  EXPECT_NEAR(drive_command(1), 0.692, 1e-9);
+  EXPECT_NEAR(drive_command(2), 0.308, 1e-9);
+  EXPECT_NEAR(drive_command(3), 0.692, 1e-9);
+}
+
+TEST_F(RP1SwerveControllerTest, ModeSwitchTakesEffectImmediatelyWhenAlreadyStopped)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Default (never-driven) state reads back as 0 -- see set_uniform_drive_state()'s absence
+  // here: a controller that's never received any state feedback is treated as stopped, not
+  // blocked indefinitely (this is also why every other test in this file, which never calls
+  // set_uniform_drive_state(), has always seen mode switches take effect on the very first
+  // update() call).
+  set_all_home_0deg(true);
+  publish_mode(*controller, 1);  // LOCKED_0
+  publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
   }
 }
 

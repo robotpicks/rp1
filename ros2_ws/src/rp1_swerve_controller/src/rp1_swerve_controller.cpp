@@ -64,6 +64,16 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
   base_frame_id_ = node->declare_parameter<std::string>("base_frame_id", base_frame_id_);
   enable_odom_tf_ = node->declare_parameter<bool>("enable_odom_tf", enable_odom_tf_);
 
+  mode_switch_stopped_tolerance_ = node->declare_parameter<double>(
+    "mode_switch_stopped_tolerance", mode_switch_stopped_tolerance_);
+  if (mode_switch_stopped_tolerance_ < 0.0)
+  {
+    RCLCPP_ERROR(
+      node->get_logger(), "mode_switch_stopped_tolerance (%f) must not be negative",
+      mode_switch_stopped_tolerance_);
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
   // CornerIndex order: front_left, front_right, rear_left, rear_right. X forward, Y left
   // (REP-103) -- matches rp1-specs/mechanical_spec.md's steering-axis table.
   corner_position_[FRONT_LEFT] = {half_wheelbase_, half_track_};
@@ -164,6 +174,7 @@ controller_interface::CallbackReturn RP1SwerveController::on_configure(
     { input_cmd_vel_.set([&msg](std::shared_ptr<TwistStamped> & value) { value = msg; }); });
 
   mode_.store(static_cast<uint8_t>(SwerveMode::FULL_SWERVE));
+  active_mode_ = SwerveMode::FULL_SWERVE;
   mode_subscriber_ = get_node()->create_subscription<std_msgs::msg::UInt8>(
     "~/mode", rclcpp::SystemDefaultsQoS(),
     [this](const std::shared_ptr<std_msgs::msg::UInt8> msg) { mode_.store(msg->data); });
@@ -322,24 +333,28 @@ controller_interface::CallbackReturn RP1SwerveController::on_deactivate(
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
-void RP1SwerveController::compute_corner_commands(
-  const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
-  std::array<double, NUM_CORNERS> & steering_angle,
-  std::array<double, NUM_CORNERS> & seek_home_command)
+SwerveMode RP1SwerveController::validate_mode(uint8_t raw)
 {
-  const double vx = cmd_vel.twist.linear.x;
-  const double vy = cmd_vel.twist.linear.y;
-  const double wz = cmd_vel.twist.angular.z;
-
-  auto mode = static_cast<SwerveMode>(mode_.load());
+  auto mode = static_cast<SwerveMode>(raw);
   if (mode != SwerveMode::FULL_SWERVE && mode != SwerveMode::LOCKED_0 &&
       mode != SwerveMode::LOCKED_90 && mode != SwerveMode::TWO_WHEEL)
   {
     // Unrecognized value on ~/mode (stray publish, uninitialized field, a future mode this
     // build doesn't know about) -- fail safe to the one mode that's always geometrically valid
     // rather than silently doing nothing or crashing on the switch below.
-    mode = SwerveMode::FULL_SWERVE;
+    return SwerveMode::FULL_SWERVE;
   }
+  return mode;
+}
+
+void RP1SwerveController::compute_corner_commands(
+  SwerveMode mode, const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
+  std::array<double, NUM_CORNERS> & steering_angle,
+  std::array<double, NUM_CORNERS> & seek_home_command)
+{
+  const double vx = cmd_vel.twist.linear.x;
+  const double vy = cmd_vel.twist.linear.y;
+  const double wz = cmd_vel.twist.angular.z;
 
   // First pass: which corners are locked to a fixed reference angle this mode (only
   // LOCKED_0/LOCKED_90/TWO_WHEEL's non-free corners), and -- for those -- whether the physical
@@ -484,12 +499,22 @@ void RP1SwerveController::compute_body_twist(double & vx, double & vy, double & 
   double sum_wz_num = 0.0;
   double sum_wz_den = 0.0;
 
+  // A state interface that hasn't been reported yet (real hardware before its first telemetry
+  // frame, or a bare test-harness interface with no initial_value) reads back as an ENGAGED
+  // optional wrapping NaN, not an empty one -- get_optional().value_or(0.0) only substitutes for
+  // the latter, so a NaN payload would otherwise poison every downstream sum. Treat both cases
+  // the same way: no data yet contributes zero.
+  auto state_or_zero = [](const hardware_interface::LoanedStateInterface & iface)
+  {
+    const double value = iface.get_optional().value_or(0.0);
+    return std::isnan(value) ? 0.0 : value;
+  };
+
   for (std::size_t i = 0; i < NUM_CORNERS; ++i)
   {
     const auto [x_i, y_i] = corner_position_[i];
-    const double wheel_speed =
-      wheel_radius_ * drive_velocity_state_[i].get().get_optional().value_or(0.0);
-    const double angle = steering_position_state_[i].get().get_optional().value_or(0.0);
+    const double wheel_speed = wheel_radius_ * state_or_zero(drive_velocity_state_[i].get());
+    const double angle = state_or_zero(steering_position_state_[i].get());
     const double vwx = wheel_speed * std::cos(angle);
     const double vwy = wheel_speed * std::sin(angle);
 
@@ -511,6 +536,29 @@ controller_interface::return_type RP1SwerveController::update(
   input_cmd_vel_.get(
     [&cmd_vel](const std::shared_ptr<TwistStamped> & value) { cmd_vel = value; });
 
+  // Body twist from real state feedback (not the command), computed once and reused both to
+  // gate mode transitions below and to publish ~/odom further down.
+  double vx = 0.0;
+  double vy = 0.0;
+  double wz = 0.0;
+  compute_body_twist(vx, vy, wz);
+
+  // Mode-switch safety (rp1-specs/requirements.md's "no ramping, no requirement to be stopped
+  // first, no rejection of a switch mid-turn" gap): a requested mode only becomes the ACTIVE one
+  // once the chassis is confirmed actually stopped, not just commanded to stop -- otherwise
+  // compute_corner_commands() keeps running the previous mode's kinematics. This is a blanket
+  // rule independent of the home_0deg/home_90deg gate inside compute_corner_commands() (which
+  // only fires when a corner's target angle isn't yet confirmed); this one covers every mode
+  // transition, including ones where no corner's target angle actually changes.
+  const auto requested_mode = validate_mode(mode_.load());
+  const bool is_stopped = std::abs(vx) < mode_switch_stopped_tolerance_ &&
+                           std::abs(vy) < mode_switch_stopped_tolerance_ &&
+                           std::abs(wz) < mode_switch_stopped_tolerance_;
+  if (requested_mode != active_mode_ && is_stopped)
+  {
+    active_mode_ = requested_mode;
+  }
+
   std::array<double, NUM_CORNERS> wheel_velocity{};
   std::array<double, NUM_CORNERS> steering_angle{};
   std::array<double, NUM_CORNERS> seek_home_command{};
@@ -519,7 +567,8 @@ controller_interface::return_type RP1SwerveController::update(
   // if the robot is meant to sit still while it homes.
   static const TwistStamped kZeroTwist{};
   compute_corner_commands(
-    cmd_vel ? *cmd_vel : kZeroTwist, wheel_velocity, steering_angle, seek_home_command);
+    active_mode_, cmd_vel ? *cmd_vel : kZeroTwist, wheel_velocity, steering_angle,
+    seek_home_command);
 
   for (std::size_t i = 0; i < NUM_CORNERS; ++i)
   {
@@ -544,11 +593,6 @@ controller_interface::return_type RP1SwerveController::update(
         "Failed to set seek_home command for corner %zu", i);
     }
   }
-
-  double vx = 0.0;
-  double vy = 0.0;
-  double wz = 0.0;
-  compute_body_twist(vx, vy, wz);
 
   const double dt = period.seconds();
   // Integrate in the world/odom frame: rotate the body-frame twist by the current yaw before

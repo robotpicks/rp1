@@ -115,10 +115,25 @@ protected:
   // Mode select, ~/mode (std_msgs/UInt8, SwerveMode's underlying value). A trivially-copyable
   // POD, so a plain atomic is enough -- no need for the RealtimeThreadSafeBox machinery
   // input_cmd_vel_ uses for a non-trivial shared_ptr payload. Unrecognized values fall back to
-  // FULL_SWERVE in compute_corner_commands() rather than erroring, since a mode topic is easy to
-  // publish a stray/uninitialized value on.
+  // FULL_SWERVE (see validate_mode()) rather than erroring, since a mode topic is easy to publish
+  // a stray/uninitialized value on. This is the RAW requested mode -- update() only ever commits
+  // it to active_mode_ once the robot is confirmed stopped; compute_corner_commands() acts on
+  // active_mode_, never mode_ directly.
   rclcpp::Subscription<std_msgs::msg::UInt8>::SharedPtr mode_subscriber_;
   std::atomic<uint8_t> mode_{static_cast<uint8_t>(SwerveMode::FULL_SWERVE)};
+
+  // The mode compute_corner_commands() actually acts on, as opposed to mode_ (the raw requested
+  // value). update() only advances active_mode_ to the current requested mode once the robot's
+  // real (state-feedback-derived) body twist reads below mode_switch_stopped_tolerance_ on all
+  // 3 axes -- rp1-specs/requirements.md's "no ramping, no requirement to be stopped first, no
+  // rejection of a switch mid-turn" gap. Complements, rather than replaces, the home_0deg/
+  // home_90deg gate in compute_corner_commands(): that gate only fires when a corner's target
+  // angle actually changes and isn't yet confirmed there; this one is a blanket "don't reshuffle
+  // which corners are locked, or to what, while the chassis is actually moving" rule that covers
+  // every mode transition regardless of which corners are affected. Reset to FULL_SWERVE in
+  // on_configure(), matching mode_'s own reset.
+  SwerveMode active_mode_ = SwerveMode::FULL_SWERVE;
+  double mode_switch_stopped_tolerance_ = 0.02;
 
   // Which 2 corners free-steer in TWO_WHEEL mode -- any 2 of the 4, not fixed to a front/rear
   // pair. Set via the two_wheel_steered_corners parameter (exactly 2 of "front_left",
@@ -174,17 +189,23 @@ private:
   // -- NOT a generic solver, would need revisiting if corner_position_ ever became asymmetric.
   void compute_body_twist(double & vx, double & vy, double & wz) const;
 
+  // Validates a raw ~/mode value, falling back to FULL_SWERVE for anything not one of the 4
+  // known SwerveMode values (a stray publish/uninitialized field on ~/mode shouldn't error or
+  // silently do nothing -- FULL_SWERVE is the one mode that's always geometrically valid).
+  static SwerveMode validate_mode(uint8_t raw);
+
   // Swerve inverse kinematics: (vx, vy, wz) -> per-corner wheel speed + steering angle, per
-  // mode_. FULL_SWERVE: standard rigid-body-twist decomposition per corner, plus the angle-flip
-  // optimization (rotate the wheel <= 90 degrees by allowing negative speed instead of always
-  // rotating to the literal computed angle) against last_steering_angle_ so small cmd_vel
-  // changes don't spin a wheel 180 degrees when reversing direction would be shorter.
-  // LOCKED_0/LOCKED_90/TWO_WHEEL: affected corners are held at a fixed angle (no flip
-  // optimization -- a "locked" wheel should stay visually fixed, not flip to the opposite angle
-  // with reversed speed even though that's motion-equivalent) and driven by projecting the same
-  // rigid-body-twist vector onto that fixed direction, which is exactly the standard skid-steer
-  // differential-drive formula when the fixed angle is 0. Mutates last_steering_angle_, so not
-  // const.
+  // `mode` (the ALREADY-validated, already mode-switch-gated active_mode_ -- see update() and
+  // active_mode_'s header comment; this function never reads mode_ itself). FULL_SWERVE:
+  // standard rigid-body-twist decomposition per corner, plus the angle-flip optimization (rotate
+  // the wheel <= 90 degrees by allowing negative speed instead of always rotating to the literal
+  // computed angle) against last_steering_angle_ so small cmd_vel changes don't spin a wheel 180
+  // degrees when reversing direction would be shorter. LOCKED_0/LOCKED_90/TWO_WHEEL: affected
+  // corners are held at a fixed angle (no flip optimization -- a "locked" wheel should stay
+  // visually fixed, not flip to the opposite angle with reversed speed even though that's
+  // motion-equivalent) and driven by projecting the same rigid-body-twist vector onto that fixed
+  // direction, which is exactly the standard skid-steer differential-drive formula when the
+  // fixed angle is 0. Mutates last_steering_angle_, so not const.
   //
   // Homing gate (rp1-specs/requirements.md's "Transitioning between the two locked
   // configurations..." note): a corner locked to a fixed angle this mode is only trusted once
@@ -197,7 +218,7 @@ private:
   // request, matching vesc_dronecan_driver's edge-triggered convention) -- the corner's steering
   // position command still targets the locked angle as usual, so it can visibly seek in place.
   void compute_corner_commands(
-    const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
+    SwerveMode mode, const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
     std::array<double, NUM_CORNERS> & steering_angle,
     std::array<double, NUM_CORNERS> & seek_home_command);
 };

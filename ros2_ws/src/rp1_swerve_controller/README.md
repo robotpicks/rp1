@@ -73,6 +73,28 @@ and what it needs to do") for the operating modes this needs to support, and
   against `rp1_swerve_dronecan.launch.py` over `vcan0` (same zero-hold, plus a raw DroneCAN
   sniff confirmed exactly one `COMMAND_TYPE_HOME` `actuator.ArrayCommand` entry per corner
   reaches the wire — not resent every cycle — when switching into `LOCKED_0`).
+- **Mode-switch safety: a requested mode only becomes active once the chassis is confirmed
+  actually stopped.** Complements the homing gate above rather than replacing it — that gate
+  only fires when a corner's target angle isn't yet confirmed; this one is a blanket rule
+  covering every mode transition, including ones where no corner's target angle actually
+  changes (e.g. `LOCKED_0`→`TWO_WHEEL`'s default pair, both wanting the same 0° for the locked
+  corners). `update()` computes the real (state-feedback-derived) body twist via
+  `compute_body_twist()` every cycle; a requested `~/mode` value only overwrites `active_mode_`
+  — the mode `compute_corner_commands()` actually acts on — once `vx`/`vy`/`wz` are all below
+  `mode_switch_stopped_tolerance` (default 0.02 m/s or rad/s). Until then, the controller keeps
+  running the *previous* mode's kinematics rather than freezing or erroring. Fixed a latent bug
+  surfaced while adding this: `compute_body_twist()`'s per-corner state reads used
+  `get_optional().value_or(0.0)`, which only substitutes for a genuinely empty optional — a
+  state interface that hasn't been reported yet reads back as an *engaged* optional wrapping
+  NaN (real hardware before its first telemetry frame, or a bare test-harness interface with no
+  `initial_value`), which silently poisoned every downstream sum; now explicitly NaN-checked.
+  Verified via gtest (a chassis reporting real motion via drive/steering state defers a
+  requested switch, keeping the previous mode's exact numbers, then adopts the new mode with
+  the previously-verified locked-mode numbers once state reports near-zero; a controller that's
+  never received any state feedback is treated as already stopped, matching every other test in
+  the suite) and live against `rp1_swerve_mock.launch.py`: requesting `LOCKED_0` while actively
+  driving left the FULL_SWERVE steering angles in place, and only snapped to the locked angle
+  once a zero `cmd_vel` let the mock-looped-back state settle near zero.
 - **Odometry.** `compute_body_twist()` reads back drive velocity + steering position *state*
   (`wheel_radius` param converts angular velocity to linear speed) and solves the same
   rigid-body-twist equations as the IK, in reverse — exact for this controller's always-
@@ -91,12 +113,14 @@ and what it needs to do") for the operating modes this needs to support, and
 
 ## What's not here yet
 
-- **No mode-switch safety handling beyond the homing gate above** — a switch INTO `LOCKED_0`/
-  `LOCKED_90`/`TWO_WHEEL` while already homed at the target angle (or switching between two
-  modes needing the *same* angle, e.g. `LOCKED_0`→`TWO_WHEEL`) takes effect immediately with
-  whatever `cmd_vel` is current; there's no ramping, no requirement to be stopped first, no
-  rejection of a switch mid-turn. The homing gate only helps when the target angle isn't yet
-  physically confirmed.
+- **No ramping/deceleration on a deferred mode switch.** The mode-switch-safety gate above waits
+  for the chassis to report already-near-zero twist before switching — it doesn't itself command
+  a stop or ramp the robot down. If `cmd_vel` never drops below `mode_switch_stopped_tolerance`,
+  the switch simply never takes effect; that's a deliberate choice matching this codebase's
+  general pattern of layering safety checks rather than taking control actions on the caller's
+  behalf (same reasoning as `rp1_teleop`'s deadman button zeroing output instead of commanding a
+  stop), but it does mean an operator (or a higher-level planner) is still responsible for
+  actually slowing the robot down before a mode switch will land.
 - Not wired into Gazebo physics yet.
 - **Real DroneCAN hardware path verified for both drive and steering.**
   `rp1_swerve_dronecan.launch.py` (against `vesc_dronecan_driver`, real wire framing over
@@ -121,7 +145,7 @@ and what it needs to do") for the operating modes this needs to support, and
 
 ## Tests
 
-`test/test_rp1_swerve_controller.cpp` — 14 gtest cases, run via `colcon test --packages-select
+`test/test_rp1_swerve_controller.cpp` — 16 gtest cases, run via `colcon test --packages-select
 rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
 `StateInterface` objects (not a mock hardware component), drives the actual lifecycle
 (`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
@@ -130,12 +154,14 @@ wiring itself is exercised, not just the math. Covers straight/crab/turn-in-plac
 asserting the angle-flip optimization's exact expected values on the two corners where it should
 engage), `LOCKED_0`/`LOCKED_90`, `TWO_WHEEL` with both the default and an overridden
 `two_wheel_steered_corners` pair, the out-of-range-mode fallback, odometry (drives state
-interfaces directly, subscribes `~/odom`, checks the published value), and the homing gate: an
+interfaces directly, subscribes `~/odom`, checks the published value), the homing gate (an
 unhomed `LOCKED_0`/`LOCKED_90` switch holds every drive wheel at zero and issues the right
 `seek_home` target, confirming the sensor afterward resumes driving with the same numbers the
 non-gated tests check; a partially-homed corner (3 of 4) still holds the whole chassis; `TWO_WHEEL`
 gates on its locked pair only, never the free-steering one; and `FULL_SWERVE` never gates
-regardless of home state.
+regardless of home state), and the mode-switch-safety gate (a chassis reporting real motion via
+drive/steering state defers a requested switch, adopting it only once state settles near zero;
+a controller that's never received state feedback is treated as already stopped).
 
 Not chainable (`controller_interface::ControllerInterface`, not `ChainableControllerInterface`)
 — unlike this ROS 2 release's `diff_drive_controller`/`mecanum_drive_controller`. Revisit only if
