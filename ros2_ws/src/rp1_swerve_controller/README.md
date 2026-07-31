@@ -4,14 +4,16 @@
 base. Started on the `swerve` branch (`master`/main bringup stays 4-wheel-only skid-steer via
 `diff_drive_controller` until this replaces it) — see `rp1-specs/requirements.md` ("Why swerve,
 and what it needs to do") for the operating modes this needs to support, and
-`rp1-specs/software_spec.md` ("Swerve controller — not yet started") for the broader status.
+`rp1-specs/software_spec.md`'s "Swerve controller" section for the broader status.
 
 ## What's here
 
 - Claims 4 drive velocity command interfaces + 4 steering position command interfaces, named via
   the `drive_joints`/`steering_joints` parameters (each a list of exactly 4 names, in
   front_left/front_right/rear_left/rear_right order — matches `docs/can_id_map.md`'s wheel index
-  convention).
+  convention). Also claims a `seek_home` command interface and `home_0deg`/`home_90deg` `<gpio>`
+  state interfaces per steering joint, unless `steering_home_sensors_available` (default `true`)
+  is set `false` — see the homing gate and Gazebo bullets below for why that escape hatch exists.
 - Subscribes `~/cmd_vel` (`geometry_msgs/TwistStamped`, matching `rp1_teleop`'s output and
   `diff_drive_controller`'s convention on this ROS 2 release).
 - Lifecycle (`on_init`/`on_configure`/`on_activate`/`on_deactivate`) and `update()` are wired
@@ -110,18 +112,6 @@ and what it needs to do") for the operating modes this needs to support, and
   base_link` TF, confirming the robot actually drives across RViz's grid now, not just
   articulates its joints in place. See that launch file for the "watch it before trusting it on
   the robot" bringup.
-
-## What's not here yet
-
-- **No ramping/deceleration on a deferred mode switch.** The mode-switch-safety gate above waits
-  for the chassis to report already-near-zero twist before switching — it doesn't itself command
-  a stop or ramp the robot down. If `cmd_vel` never drops below `mode_switch_stopped_tolerance`,
-  the switch simply never takes effect; that's a deliberate choice matching this codebase's
-  general pattern of layering safety checks rather than taking control actions on the caller's
-  behalf (same reasoning as `rp1_teleop`'s deadman button zeroing output instead of commanding a
-  stop), but it does mean an operator (or a higher-level planner) is still responsible for
-  actually slowing the robot down before a mode switch will land.
-- Not wired into Gazebo physics yet.
 - **Real DroneCAN hardware path verified for both drive and steering.**
   `rp1_swerve_dronecan.launch.py` (against `vesc_dronecan_driver`, real wire framing over
   `can0`/`vcan0`) drove straight and produced genuine nonzero drive-wheel velocity/position in
@@ -142,10 +132,50 @@ and what it needs to do") for the operating modes this needs to support, and
   extension bits themselves (and `seek_home`/`COMMAND_TYPE_HOME`) still aren't exercised by
   these simulator scripts, since the stock `dronecan` Python codec doesn't know to populate
   them — only a real bldc-flashed VESC (or a simulator taught the extension) would cover that.
+- **Gazebo physics wiring, via `rp1_swerve_gazebo.launch.py`.** `gz_ros2_control`'s
+  `GazeboSimSystem` replaces `vesc_dronecan_driver`/`mock_components` — the first tier where
+  drive/steering feedback comes from an actual simulated rigid-body dynamics solver (inertia,
+  gravity, contact), not commands looping straight back to state or a real DroneCAN round-trip
+  with no physics at all. GazeboSimSystem only backs standard joint interfaces (position/
+  velocity/effort) with a real Gazebo entity, so it can't export `seek_home` or any `<gpio>`
+  interface (ESC telemetry, `home_0deg`/`home_90deg`) — no Gazebo entity to back those with.
+  Since `controller_manager`'s resource manager refuses to activate a controller that declares
+  an interface no hardware component exports, this can't be requested-then-tolerated-if-missing
+  the way an unexpectedly-absent `steering_home_sensors` name is: the new
+  `steering_home_sensors_available` parameter (default `true`) tells the controller not to
+  request `seek_home`/`home_0deg`/`home_90deg` at all, set to `false` for this tier via
+  `rp1_swerve_gazebo_overrides.yaml`. Practically this means home confirmation is permanently
+  unavailable under Gazebo (same situation as mock hardware, for the same reason — nothing
+  simulates the proximity sensors), so only `FULL_SWERVE` drives; `LOCKED_0`/`LOCKED_90`/
+  `TWO_WHEEL` stay correctly gated at zero forever. Verified live: both `joint_state_broadcaster`
+  and `rp1_swerve_controller` activate cleanly against the spawned model, and driving straight
+  produced real closed-loop feedback through actual physics — wheel velocity converging toward
+  (not instantly snapping to) the commanded value, `~/odom` and the broadcast TF both advancing
+  with real accumulated distance. Two real bugs fixed getting there, both launch-file-level, not
+  controller bugs: the URDF's own explanatory comment happened to contain the same placeholder
+  text used for the `<parameters>` path substitution, so a naive `count=1` regex replaced the
+  comment's occurrence instead of the tag's; and spawners need `--param-file` here exactly like
+  the other two tiers already document, even though `gz_ros2_control`'s plugin separately loads
+  the same YAML for its own `controller_manager`'s `ros__parameters` (that only covers
+  controller *type* declarations, not each controller's own parameters).
+
+## What's not here yet
+
+- **No ramping/deceleration on a deferred mode switch.** The mode-switch-safety gate above waits
+  for the chassis to report already-near-zero twist before switching — it doesn't itself command
+  a stop or ramp the robot down. If `cmd_vel` never drops below `mode_switch_stopped_tolerance`,
+  the switch simply never takes effect; that's a deliberate choice matching this codebase's
+  general pattern of layering safety checks rather than taking control actions on the caller's
+  behalf (same reasoning as `rp1_teleop`'s deadman button zeroing output instead of commanding a
+  stop), but it does mean an operator (or a higher-level planner) is still responsible for
+  actually slowing the robot down before a mode switch will land.
+- **Gazebo PID gains are untuned defaults.** The 300kg chassis's velocity/position control feels
+  sluggish (wheel velocity takes a noticeable amount of simulated time to converge toward a
+  step-changed target) -- plausible-looking, not yet tuned for realistic response.
 
 ## Tests
 
-`test/test_rp1_swerve_controller.cpp` — 16 gtest cases, run via `colcon test --packages-select
+`test/test_rp1_swerve_controller.cpp` — 18 gtest cases, run via `colcon test --packages-select
 rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
 `StateInterface` objects (not a mock hardware component), drives the actual lifecycle
 (`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
@@ -159,9 +189,13 @@ unhomed `LOCKED_0`/`LOCKED_90` switch holds every drive wheel at zero and issues
 `seek_home` target, confirming the sensor afterward resumes driving with the same numbers the
 non-gated tests check; a partially-homed corner (3 of 4) still holds the whole chassis; `TWO_WHEEL`
 gates on its locked pair only, never the free-steering one; and `FULL_SWERVE` never gates
-regardless of home state), and the mode-switch-safety gate (a chassis reporting real motion via
+regardless of home state), the mode-switch-safety gate (a chassis reporting real motion via
 drive/steering state defers a requested switch, adopting it only once state settles near zero;
-a controller that's never received state feedback is treated as already stopped).
+a controller that's never received state feedback is treated as already stopped), and
+`steering_home_sensors_available:false` (mirroring Gazebo: no seek_home/home_0deg/home_90deg
+interfaces assigned at all, not just unconfirmed) -- the controller still activates and drives
+`FULL_SWERVE` normally, and `LOCKED_0` stays gated at zero across several cycles, not just the
+first.
 
 Not chainable (`controller_interface::ControllerInterface`, not `ChainableControllerInterface`)
 — unlike this ROS 2 release's `diff_drive_controller`/`mecanum_drive_controller`. Revisit only if

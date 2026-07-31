@@ -47,6 +47,8 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
       NUM_CORNERS, steering_home_sensor_names_.size());
     return controller_interface::CallbackReturn::ERROR;
   }
+  steering_home_sensors_available_ = node->declare_parameter<bool>(
+    "steering_home_sensors_available", steering_home_sensors_available_);
 
   half_wheelbase_ = node->declare_parameter<double>("half_wheelbase", half_wheelbase_);
   half_track_ = node->declare_parameter<double>("half_track", half_track_);
@@ -134,7 +136,10 @@ RP1SwerveController::command_interface_configuration() const
   for (const auto & name : steering_joint_names_)
   {
     config.names.push_back(name + "/" + hardware_interface::HW_IF_POSITION);
-    config.names.push_back(name + "/seek_home");
+    if (steering_home_sensors_available_)
+    {
+      config.names.push_back(name + "/seek_home");
+    }
   }
   return config;
 }
@@ -145,7 +150,10 @@ RP1SwerveController::state_interface_configuration() const
   // Drive velocity + steering position state, for odometry (compute_body_twist()) -- the IK
   // itself (compute_corner_commands()) is still open-loop from cmd_vel. Also reads the 0/90-
   // degree home-switch gpio state (steering_home_sensor_names_) to gate locked-mode transitions
-  // -- see compute_corner_commands().
+  // -- see compute_corner_commands() -- unless steering_home_sensors_available_ is false (e.g.
+  // Gazebo), in which case these aren't requested at all: controller_manager's resource manager
+  // refuses to activate a controller that declares an interface no hardware component actually
+  // exports, so this can't be requested-then-tolerated-if-missing.
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
   for (const auto & name : drive_joint_names_)
@@ -156,10 +164,13 @@ RP1SwerveController::state_interface_configuration() const
   {
     config.names.push_back(name + "/" + hardware_interface::HW_IF_POSITION);
   }
-  for (const auto & name : steering_home_sensor_names_)
+  if (steering_home_sensors_available_)
   {
-    config.names.push_back(name + "/home_0deg");
-    config.names.push_back(name + "/home_90deg");
+    for (const auto & name : steering_home_sensor_names_)
+    {
+      config.names.push_back(name + "/home_0deg");
+      config.names.push_back(name + "/home_90deg");
+    }
   }
   return config;
 }
@@ -233,18 +244,21 @@ controller_interface::CallbackReturn RP1SwerveController::on_activate(
     }
     steering_position_command_.emplace_back(*it);
 
-    auto seek_home_it = std::find_if(
-      command_interfaces_.begin(), command_interfaces_.end(),
-      [&name](const auto & iface)
-      { return iface.get_prefix_name() == name && iface.get_interface_name() == "seek_home"; });
-    if (seek_home_it == command_interfaces_.end())
+    if (steering_home_sensors_available_)
     {
-      RCLCPP_ERROR(
-        get_node()->get_logger(), "Could not find seek_home command interface for '%s'",
-        name.c_str());
-      return controller_interface::CallbackReturn::ERROR;
+      auto seek_home_it = std::find_if(
+        command_interfaces_.begin(), command_interfaces_.end(),
+        [&name](const auto & iface)
+        { return iface.get_prefix_name() == name && iface.get_interface_name() == "seek_home"; });
+      if (seek_home_it == command_interfaces_.end())
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(), "Could not find seek_home command interface for '%s'",
+          name.c_str());
+        return controller_interface::CallbackReturn::ERROR;
+      }
+      steering_seek_home_command_.emplace_back(*seek_home_it);
     }
-    steering_seek_home_command_.emplace_back(*seek_home_it);
   }
 
   drive_velocity_state_.clear();
@@ -288,33 +302,36 @@ controller_interface::CallbackReturn RP1SwerveController::on_activate(
 
   steering_home_0deg_state_.clear();
   steering_home_90deg_state_.clear();
-  for (const auto & name : steering_home_sensor_names_)
+  if (steering_home_sensors_available_)
   {
-    auto home_0deg_it = std::find_if(
-      state_interfaces_.begin(), state_interfaces_.end(),
-      [&name](const auto & iface)
-      { return iface.get_prefix_name() == name && iface.get_interface_name() == "home_0deg"; });
-    if (home_0deg_it == state_interfaces_.end())
+    for (const auto & name : steering_home_sensor_names_)
     {
-      RCLCPP_ERROR(
-        get_node()->get_logger(), "Could not find home_0deg state interface for '%s'",
-        name.c_str());
-      return controller_interface::CallbackReturn::ERROR;
-    }
-    steering_home_0deg_state_.emplace_back(*home_0deg_it);
+      auto home_0deg_it = std::find_if(
+        state_interfaces_.begin(), state_interfaces_.end(),
+        [&name](const auto & iface)
+        { return iface.get_prefix_name() == name && iface.get_interface_name() == "home_0deg"; });
+      if (home_0deg_it == state_interfaces_.end())
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(), "Could not find home_0deg state interface for '%s'",
+          name.c_str());
+        return controller_interface::CallbackReturn::ERROR;
+      }
+      steering_home_0deg_state_.emplace_back(*home_0deg_it);
 
-    auto home_90deg_it = std::find_if(
-      state_interfaces_.begin(), state_interfaces_.end(),
-      [&name](const auto & iface)
-      { return iface.get_prefix_name() == name && iface.get_interface_name() == "home_90deg"; });
-    if (home_90deg_it == state_interfaces_.end())
-    {
-      RCLCPP_ERROR(
-        get_node()->get_logger(), "Could not find home_90deg state interface for '%s'",
-        name.c_str());
-      return controller_interface::CallbackReturn::ERROR;
+      auto home_90deg_it = std::find_if(
+        state_interfaces_.begin(), state_interfaces_.end(),
+        [&name](const auto & iface)
+        { return iface.get_prefix_name() == name && iface.get_interface_name() == "home_90deg"; });
+      if (home_90deg_it == state_interfaces_.end())
+      {
+        RCLCPP_ERROR(
+          get_node()->get_logger(), "Could not find home_90deg state interface for '%s'",
+          name.c_str());
+        return controller_interface::CallbackReturn::ERROR;
+      }
+      steering_home_90deg_state_.emplace_back(*home_90deg_it);
     }
-    steering_home_90deg_state_.emplace_back(*home_90deg_it);
   }
 
   return controller_interface::CallbackReturn::SUCCESS;
@@ -401,7 +418,11 @@ void RP1SwerveController::compute_corner_commands(
       continue;
     }
 
-    const bool confirmed =
+    // No home sensors at all (see steering_home_sensors_available_'s header comment -- e.g.
+    // gz_ros2_control's GazeboSimSystem, which has no Gazebo entity to back a <gpio> block with)
+    // -- every corner is permanently unconfirmed, same as mock hardware's practical behavior
+    // today (the interface exists there, but nothing ever sets it true).
+    const bool confirmed = steering_home_sensors_available_ &&
       (target_is_90deg ? steering_home_90deg_state_[i] : steering_home_0deg_state_[i])
         .get()
         .get_optional()
@@ -586,7 +607,10 @@ controller_interface::return_type RP1SwerveController::update(
         get_node()->get_logger(), *get_node()->get_clock(), 1000,
         "Failed to set steering position command for corner %zu", i);
     }
-    if (!steering_seek_home_command_[i].get().set_value(seek_home_command[i]))
+    // No interface at all (see steering_home_sensors_available_'s header comment) -- nothing to
+    // write to, not a failure.
+    if (steering_home_sensors_available_ &&
+        !steering_seek_home_command_[i].get().set_value(seek_home_command[i]))
     {
       RCLCPP_WARN_THROTTLE(
         get_node()->get_logger(), *get_node()->get_clock(), 1000,

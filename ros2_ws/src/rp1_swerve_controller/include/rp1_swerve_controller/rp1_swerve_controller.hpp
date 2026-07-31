@@ -81,13 +81,28 @@ protected:
   std::vector<std::string> steering_home_sensor_names_{
     "steering_sensors_front_left", "steering_sensors_front_right", "steering_sensors_rear_left",
     "steering_sensors_rear_right"};
+  // False for a hardware component with no physical concept of a homing seek or a proximity-
+  // sensor gpio -- gz_ros2_control's GazeboSimSystem, which only backs standard joint interfaces
+  // (position/velocity/effort) with a real Gazebo entity. Must be known at
+  // command_interface_configuration()/state_interface_configuration() time (declared in
+  // on_init(), can't be discovered later): controller_manager's resource manager refuses to
+  // activate a controller that DECLARES an interface no hardware component actually exports, so
+  // seek_home/home_0deg/home_90deg can't just be requested-then-tolerated-if-missing the way
+  // on_activate() tolerates a wrong steering_home_sensors name -- they must never be requested
+  // at all when this is false. Set via the steering_home_sensors_available parameter (default
+  // true, matching mock/real DroneCAN hardware, both of which do export these).
+  bool steering_home_sensors_available_ = true;
 
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     drive_velocity_command_;
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     steering_position_command_;
   // Edge-triggered per vesc_dronecan_driver's convention (write 0.0/1.0 to request a seek, NaN
-  // means "no active request this cycle") -- see compute_corner_commands().
+  // means "no active request this cycle") -- see compute_corner_commands(). EMPTY (not
+  // NUM_CORNERS-sized) when steering_home_sensors_available_ is false -- a hardware component
+  // with no physical concept of a homing seek (gz_ros2_control's GazeboSimSystem) simply isn't
+  // asked to export this per-joint custom interface at all (see that flag's header comment for
+  // why it can't just be requested-then-tolerated-if-missing).
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     steering_seek_home_command_;
 
@@ -103,7 +118,11 @@ protected:
   // steering_sensors_* blocks -- named via the steering_home_sensors parameter, NOT the steering
   // joint name, since these live on a separate gpio block). Read live every cycle to gate locked-
   // mode transitions -- see compute_corner_commands()'s header comment for why no separate
-  // "have we ever homed" bookkeeping is needed beyond this.
+  // "have we ever homed" bookkeeping is needed beyond this. EMPTY when
+  // steering_home_sensors_available_ is false, same reasoning as steering_seek_home_command_
+  // above -- every corner is then treated as permanently unconfirmed (see
+  // compute_corner_commands()), the same practical outcome mock hardware already has today (the
+  // interface exists there, but nothing ever sets it true).
   std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>
     steering_home_0deg_state_;
   std::vector<std::reference_wrapper<const hardware_interface::LoanedStateInterface>>

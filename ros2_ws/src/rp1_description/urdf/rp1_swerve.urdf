@@ -46,7 +46,17 @@
   </link>
 
   <!-- Front-left -->
-  <link name="steering_front_left_link"/>
+  <link name="steering_front_left_link">
+    <!-- Small placeholder inertia -- this link is otherwise massless (a coordinate frame for
+    the steering axis, not a real CAD part), which Gazebo's physics engine (DART) rejects on any
+    link connected only by movable joints. Negligible next to the 300kg chassis/15kg wheels;
+    revisit with a real steering-hub mass if/when that's CAD-confirmed. Only matters for the
+    Gazebo tier -- mock/real DroneCAN hardware ignore inertial blocks entirely. -->
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
   <joint name="steering_front_left" type="continuous">
     <parent link="base_link"/>
     <child link="steering_front_left_link"/>
@@ -78,7 +88,12 @@
   </joint>
 
   <!-- Front-right -->
-  <link name="steering_front_right_link"/>
+  <link name="steering_front_right_link">
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
   <joint name="steering_front_right" type="continuous">
     <parent link="base_link"/>
     <child link="steering_front_right_link"/>
@@ -110,7 +125,12 @@
   </joint>
 
   <!-- Rear-left -->
-  <link name="steering_rear_left_link"/>
+  <link name="steering_rear_left_link">
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
   <joint name="steering_rear_left" type="continuous">
     <parent link="base_link"/>
     <child link="steering_rear_left_link"/>
@@ -142,7 +162,12 @@
   </joint>
 
   <!-- Rear-right -->
-  <link name="steering_rear_right_link"/>
+  <link name="steering_rear_right_link">
+    <inertial>
+      <mass value="0.5"/>
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+    </inertial>
+  </link>
   <joint name="steering_rear_right" type="continuous">
     <parent link="base_link"/>
     <child link="steering_rear_right_link"/>
@@ -286,4 +311,20 @@
       <state_interface name="home_90deg"/>
     </gpio>
   </ros2_control>
+
+  <!-- Only read when spawned into gz sim (rp1_swerve_gazebo.launch.py) via gz_ros2_control --
+  mock/real DroneCAN hardware (ros2_control_node, a plain process) never look for a <gazebo> tag.
+  The <ros2_control><hardware><plugin> above gets text-substituted to gz_ros2_control/
+  GazeboSimSystem for that tier (same technique rp1_swerve_mock.launch.py already uses for
+  mock_components/GenericSystem); GazeboSimSystem only understands standard joint interfaces
+  (position/velocity/effort) backed by a real Gazebo joint entity, so it does not export
+  seek_home or any <gpio> state interface (no physical entity to back those with) -- see
+  rp1_swerve_controller's README for how the controller tolerates that. The placeholder text
+  below the <parameters> tag gets substituted with rp1_swerve_controllers.yaml's real installed
+  path at launch time, the same way can_iface does for rp1_swerve_dronecan.launch.py. -->
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>PARAMS_FILE_PLACEHOLDER</parameters>
+    </plugin>
+  </gazebo>
 </robot>

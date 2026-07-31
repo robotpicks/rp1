@@ -1,0 +1,13 @@
+# rp1_swerve_gazebo.launch.py-only override, layered on top of rp1_swerve_controllers.yaml via a
+# second --param-file argument (later files win for the same key).
+#
+# gz_ros2_control's GazeboSimSystem only backs standard joint interfaces (position/velocity/
+# effort) with a real Gazebo entity -- it has no physical concept of the seek_home command
+# interface or the home_0deg/home_90deg <gpio> blocks rp1_swerve.urdf also declares for
+# vesc_dronecan_driver's benefit. controller_manager's resource manager refuses to activate a
+# controller that declares an interface no hardware component actually exports, so
+# rp1_swerve_controller must be told NOT to request them at all here, rather than requesting and
+# tolerating them being missing (see rp1_swerve_controller's README).
+rp1_swerve_controller:
+  ros__parameters:
+    steering_home_sensors_available: false

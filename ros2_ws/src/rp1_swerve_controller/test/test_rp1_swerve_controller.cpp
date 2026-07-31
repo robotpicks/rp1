@@ -88,8 +88,15 @@ public:
 
   // Builds and activates a controller with the given extra parameter overrides (on top of
   // drive_joints/steering_joints, always set). Returns nullptr on any lifecycle failure.
+  // include_home_sensors=false skips assigning the seek_home/home_0deg/home_90deg interfaces at
+  // all -- simulating a hardware component with no physical concept of them (gz_ros2_control's
+  // GazeboSimSystem), as opposed to those interfaces merely existing-but-never-set-true (what
+  // every other test in this file, and mock hardware, actually look like). Callers passing false
+  // must also pass steering_home_sensors_available:false in extra_params, or on_activate() will
+  // still try to find interfaces this helper never assigned and the controller will fail to
+  // activate -- exactly mirroring the real controller_manager behavior this is testing.
   std::unique_ptr<rp1_swerve_controller::RP1SwerveController> bring_up(
-    const std::vector<rclcpp::Parameter> & extra_params = {})
+    const std::vector<rclcpp::Parameter> & extra_params = {}, bool include_home_sensors = true)
   {
     auto controller = std::make_unique<rp1_swerve_controller::RP1SwerveController>();
 
@@ -118,11 +125,14 @@ public:
     std::vector<hardware_interface::LoanedStateInterface> state_interfaces;
     for (auto & iface : drive_velocity_command_) command_interfaces.emplace_back(iface);
     for (auto & iface : steering_position_command_) command_interfaces.emplace_back(iface);
-    for (auto & iface : steering_seek_home_command_) command_interfaces.emplace_back(iface);
     for (auto & iface : drive_velocity_state_) state_interfaces.emplace_back(iface);
     for (auto & iface : steering_position_state_) state_interfaces.emplace_back(iface);
-    for (auto & iface : steering_home_0deg_state_) state_interfaces.emplace_back(iface);
-    for (auto & iface : steering_home_90deg_state_) state_interfaces.emplace_back(iface);
+    if (include_home_sensors)
+    {
+      for (auto & iface : steering_seek_home_command_) command_interfaces.emplace_back(iface);
+      for (auto & iface : steering_home_0deg_state_) state_interfaces.emplace_back(iface);
+      for (auto & iface : steering_home_90deg_state_) state_interfaces.emplace_back(iface);
+    }
     controller->assign_interfaces(std::move(command_interfaces), std::move(state_interfaces));
 
     if (!controller_interface::activate_succeeds(controller))
@@ -627,6 +637,60 @@ TEST_F(RP1SwerveControllerTest, FullSwerveNeverGatesOnHoming)
   {
     EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
     EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, ActivatesAndDrivesFullSwerveWithoutAnyHomeSensorInterfaces)
+{
+  // Mirrors gz_ros2_control's GazeboSimSystem: no seek_home/home_0deg/home_90deg interfaces
+  // exist anywhere in the system at all (not just unconfirmed, as every other test in this file
+  // has them). steering_home_sensors_available:false must be set, or on_activate() would still
+  // try to find interfaces this bring_up() call never assigned and fail to activate -- the same
+  // failure this whole parameter exists to avoid (see the controller's README).
+  auto controller = bring_up(
+    {rclcpp::Parameter("steering_home_sensors_available", false)},
+    /*include_home_sensors=*/false);
+  ASSERT_NE(controller, nullptr);
+
+  publish_cmd_vel(*controller, 1.0, 0.0, 0.0);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  // Same numbers as StraightDriveAllWheelsZeroAngleFullSpeed -- FULL_SWERVE never needed home
+  // sensors in the first place.
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
+    EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, Locked0StaysGatedForeverWithoutAnyHomeSensorInterfaces)
+{
+  auto controller = bring_up(
+    {rclcpp::Parameter("steering_home_sensors_available", false)},
+    /*include_home_sensors=*/false);
+  ASSERT_NE(controller, nullptr);
+
+  publish_mode(*controller, 1);  // LOCKED_0
+  publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+
+  // Run several cycles -- with no home sensor interfaces at all, there is nothing that could
+  // ever confirm the reference, so this must stay gated indefinitely, not just on the first
+  // cycle (matching what was verified live: rp1_swerve_mock.launch.py and
+  // rp1_swerve_gazebo.launch.py both hold LOCKED_0 at zero forever, for the same reason).
+  for (int cycle = 0; cycle < 5; ++cycle)
+  {
+    ASSERT_EQ(
+      controller->update(controller->get_node()->now(), period),
+      controller_interface::return_type::OK);
+    for (std::size_t i = 0; i < 4; ++i)
+    {
+      EXPECT_NEAR(drive_command(i), 0.0, 1e-9) << "cycle " << cycle << " corner " << i;
+    }
   }
 }
 
