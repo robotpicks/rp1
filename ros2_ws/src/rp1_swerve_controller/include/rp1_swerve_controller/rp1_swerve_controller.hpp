@@ -166,6 +166,27 @@ protected:
   SwerveMode active_mode_ = SwerveMode::FULL_SWERVE;
   double mode_switch_stopped_tolerance_ = 0.02;
 
+  // Deceleration rates (rp1-specs/requirements.md's "no ramping" gap): while a mode switch is
+  // pending (requested_mode != active_mode_ in update()) and the chassis isn't yet stopped, the
+  // raw ~/cmd_vel is ignored in favor of ramp_vx_/ramp_vy_/ramp_wz_, decremented toward zero at
+  // these rates every cycle -- otherwise a caller that keeps publishing a nonzero twist could
+  // block the switch forever, since is_stopped is gated on real state feedback, not on cmd_vel
+  // going quiet on its own. Separate linear/angular rates since they're physically different
+  // quantities; a single shared rate would make one axis's ramp too aggressive or too timid to
+  // tune both sensibly. Validated > 0 in on_init() -- a zero or negative rate would never let the
+  // ramp reach zero, deadlocking every subsequent mode switch.
+  double mode_switch_linear_deceleration_ = 0.5;
+  double mode_switch_angular_deceleration_ = 1.0;
+  // Ramp state, see the block in update(). mode_switch_ramping_ tracks whether the ramp was
+  // already in progress last cycle: once true, ramp_v{x,y}_/ramp_wz_ hold the ramp's current
+  // (monotonically-decelerating) value and are no longer reseeded from ~/cmd_vel each cycle --
+  // otherwise the ramp would restart from whatever the caller happens to keep publishing instead
+  // of actually decelerating to zero. Reset in on_configure(), matching active_mode_'s own reset.
+  bool mode_switch_ramping_ = false;
+  double ramp_vx_ = 0.0;
+  double ramp_vy_ = 0.0;
+  double ramp_wz_ = 0.0;
+
   // Which 2 corners free-steer in TWO_WHEEL mode -- any 2 of the 4, not fixed to a front/rear
   // pair. Set via the two_wheel_steered_corners parameter (exactly 2 of "front_left",
   // "front_right", "rear_left", "rear_right"; default is the front pair, matching a

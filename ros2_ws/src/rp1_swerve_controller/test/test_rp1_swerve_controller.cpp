@@ -300,7 +300,7 @@ TEST_F(RP1SwerveControllerTest, StraightDriveAllWheelsZeroAngleFullSpeed)
   for (std::size_t i = 0; i < 4; ++i)
   {
     EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
-    EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
+    EXPECT_NEAR(drive_command(i), 4.642525533890436, 1e-9) << "corner " << i;
   }
 }
 
@@ -317,7 +317,7 @@ TEST_F(RP1SwerveControllerTest, PureCrabAllWheelsNinetyDegrees)
   for (std::size_t i = 0; i < 4; ++i)
   {
     EXPECT_NEAR(steering_command(i), kPi / 2.0, 1e-9) << "corner " << i;
-    EXPECT_NEAR(drive_command(i), 0.5, 1e-9) << "corner " << i;
+    EXPECT_NEAR(drive_command(i), 2.321262766945218, 1e-9) << "corner " << i;
   }
 }
 
@@ -338,10 +338,10 @@ TEST_F(RP1SwerveControllerTest, TurnInPlaceAngleFlipOptimizationEngages)
   // FRONT_LEFT (x=0.4, y=0.64): raw angle atan2(0.4, -0.64) ~= 2.583 rad, further than +/- pi/2
   // from 0 -- expect the flip: angle ~= -0.5586 rad, speed negated to ~= -0.7547.
   EXPECT_NEAR(steering_command(0), -0.5585993153435624, 1e-9);
-  EXPECT_NEAR(drive_command(0), -0.7547184905645283, 1e-9);
+  EXPECT_NEAR(drive_command(0), -3.503799863345071, 1e-9);
   // FRONT_RIGHT (x=0.4, y=-0.64): raw angle atan2(0.4, 0.64) ~= 0.5586 rad, within pi/2 -- no flip.
   EXPECT_NEAR(steering_command(1), 0.5585993153435624, 1e-9);
-  EXPECT_NEAR(drive_command(1), 0.7547184905645283, 1e-9);
+  EXPECT_NEAR(drive_command(1), 3.503799863345071, 1e-9);
 }
 
 TEST_F(RP1SwerveControllerTest, Locked0IgnoresLateralAndSkidSteers)
@@ -363,10 +363,10 @@ TEST_F(RP1SwerveControllerTest, Locked0IgnoresLateralAndSkidSteers)
   }
   // Left corners (front_left=0, rear_left=2, y=+0.64) slower; right corners faster -- standard
   // skid-steer differential, vx -/+ wz*half_track.
-  EXPECT_NEAR(drive_command(0), 0.308, 1e-9);   // front_left
-  EXPECT_NEAR(drive_command(1), 0.692, 1e-9);   // front_right
-  EXPECT_NEAR(drive_command(2), 0.308, 1e-9);   // rear_left
-  EXPECT_NEAR(drive_command(3), 0.692, 1e-9);   // rear_right
+  EXPECT_NEAR(drive_command(0), 1.4298978644382543, 1e-9);   // front_left
+  EXPECT_NEAR(drive_command(1), 3.2126276694521816, 1e-9);   // front_right
+  EXPECT_NEAR(drive_command(2), 1.4298978644382543, 1e-9);   // rear_left
+  EXPECT_NEAR(drive_command(3), 3.2126276694521816, 1e-9);   // rear_right
 }
 
 TEST_F(RP1SwerveControllerTest, Locked90IgnoresForwardAndCrabsWithFrontRearSplit)
@@ -386,10 +386,10 @@ TEST_F(RP1SwerveControllerTest, Locked90IgnoresForwardAndCrabsWithFrontRearSplit
   {
     EXPECT_NEAR(steering_command(i), kPi / 2.0, 1e-9) << "corner " << i;
   }
-  EXPECT_NEAR(drive_command(0), 0.62, 1e-9);  // front_left
-  EXPECT_NEAR(drive_command(1), 0.62, 1e-9);  // front_right
-  EXPECT_NEAR(drive_command(2), 0.38, 1e-9);  // rear_left
-  EXPECT_NEAR(drive_command(3), 0.38, 1e-9);  // rear_right
+  EXPECT_NEAR(drive_command(0), 2.8783658310120703, 1e-9);  // front_left
+  EXPECT_NEAR(drive_command(1), 2.8783658310120703, 1e-9);  // front_right
+  EXPECT_NEAR(drive_command(2), 1.7641597028783658, 1e-9);  // rear_left
+  EXPECT_NEAR(drive_command(3), 1.7641597028783658, 1e-9);  // rear_right
 }
 
 TEST_F(RP1SwerveControllerTest, TwoWheelDefaultPairIsFrontFreeRearLocked)
@@ -411,8 +411,8 @@ TEST_F(RP1SwerveControllerTest, TwoWheelDefaultPairIsFrontFreeRearLocked)
   // Rear corners locked at 0, skid-differential speed.
   EXPECT_NEAR(steering_command(2), 0.0, 1e-9);
   EXPECT_NEAR(steering_command(3), 0.0, 1e-9);
-  EXPECT_NEAR(drive_command(2), 0.436, 1e-9);
-  EXPECT_NEAR(drive_command(3), 0.564, 1e-9);
+  EXPECT_NEAR(drive_command(2), 2.02414113277623, 1e-9);
+  EXPECT_NEAR(drive_command(3), 2.6183844011142057, 1e-9);
 }
 
 TEST_F(RP1SwerveControllerTest, TwoWheelCustomPairMovesWhichCornersAreLocked)
@@ -467,10 +467,10 @@ TEST_F(RP1SwerveControllerTest, Locked0BlocksDriveAndRequestsSeekHomeUntilConfir
     controller->update(controller->get_node()->now(), period),
     controller_interface::return_type::OK);
 
-  EXPECT_NEAR(drive_command(0), 0.308, 1e-9);
-  EXPECT_NEAR(drive_command(1), 0.692, 1e-9);
-  EXPECT_NEAR(drive_command(2), 0.308, 1e-9);
-  EXPECT_NEAR(drive_command(3), 0.692, 1e-9);
+  EXPECT_NEAR(drive_command(0), 1.4298978644382543, 1e-9);
+  EXPECT_NEAR(drive_command(1), 3.2126276694521816, 1e-9);
+  EXPECT_NEAR(drive_command(2), 1.4298978644382543, 1e-9);
+  EXPECT_NEAR(drive_command(3), 3.2126276694521816, 1e-9);
   for (std::size_t i = 0; i < 4; ++i)
   {
     EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
@@ -515,10 +515,60 @@ TEST_F(RP1SwerveControllerTest, ModeSwitchDeferredWhileChassisIsMovingThenTakesE
   {
     EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
   }
-  EXPECT_NEAR(drive_command(0), 0.308, 1e-9);
-  EXPECT_NEAR(drive_command(1), 0.692, 1e-9);
-  EXPECT_NEAR(drive_command(2), 0.308, 1e-9);
-  EXPECT_NEAR(drive_command(3), 0.692, 1e-9);
+  EXPECT_NEAR(drive_command(0), 1.4298978644382543, 1e-9);
+  EXPECT_NEAR(drive_command(1), 3.2126276694521816, 1e-9);
+  EXPECT_NEAR(drive_command(2), 1.4298978644382543, 1e-9);
+  EXPECT_NEAR(drive_command(3), 3.2126276694521816, 1e-9);
+}
+
+TEST_F(RP1SwerveControllerTest, ModeSwitchRampsCommandedTwistTowardZeroRegardlessOfContinuedCmdVel)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  set_all_home_0deg(true);
+  // Chassis reads as permanently "still moving" in this harness (nothing loops state feedback
+  // back to whatever's commanded), so the mode switch stays pending for as long as this test
+  // keeps calling update() -- exactly what's needed to observe the ramp settle at zero rather
+  // than just its first step.
+  set_uniform_drive_state(5.0, 0.0);
+
+  publish_mode(*controller, 1);  // LOCKED_0
+  // Pure +x: angle stays 0 under FULL_SWERVE's IK (vy=wz=0), so only drive_command needs
+  // checking here -- steering_command under a pending switch is exercised by the sibling
+  // ModeSwitchDeferredWhileChassisIsMovingThenTakesEffectOnceStopped test above. ~/cmd_vel keeps
+  // holding this same nonzero value for the rest of the test (nothing re-publishes it), so a
+  // decreasing drive_command below proves the ramp decelerates its own frozen state rather than
+  // tracking whatever ~/cmd_vel says every cycle.
+  publish_cmd_vel(*controller, 1.0, 0.0, 0.0);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+
+  // mode_switch_linear_deceleration_ defaults to 0.5 m/s^2, so each 20ms cycle should knock
+  // 0.01 m/s (0.01 / 0.2154 rad/s on the wheel) off the ramp -- verify a strictly decreasing
+  // sequence over a few cycles, not just the eventual zero, so a bug that clamped straight to
+  // zero (skipping the ramp entirely) would still be caught.
+  double previous = std::numeric_limits<double>::infinity();
+  for (int cycle = 0; cycle < 5; ++cycle)
+  {
+    ASSERT_EQ(
+      controller->update(controller->get_node()->now(), period),
+      controller_interface::return_type::OK);
+    const double current = drive_command(0);
+    EXPECT_LT(current, previous) << "cycle " << cycle;
+    EXPECT_GT(current, 0.0) << "cycle " << cycle;
+    previous = current;
+  }
+
+  // Run enough further cycles for the ramp to fully bottom out at zero and STAY there (not
+  // oscillate past zero) even though the mode switch never gets to commit in this harness (state
+  // is pinned artificially nonzero above, so is_stopped is never true).
+  for (int cycle = 0; cycle < 200; ++cycle)
+  {
+    ASSERT_EQ(
+      controller->update(controller->get_node()->now(), period),
+      controller_interface::return_type::OK);
+  }
+  EXPECT_NEAR(drive_command(0), 0.0, 1e-9);
 }
 
 TEST_F(RP1SwerveControllerTest, ModeSwitchTakesEffectImmediatelyWhenAlreadyStopped)
@@ -569,10 +619,10 @@ TEST_F(RP1SwerveControllerTest, Locked90BlocksDriveUntilConfirmedAtNinetyDegrees
     controller->update(controller->get_node()->now(), period),
     controller_interface::return_type::OK);
 
-  EXPECT_NEAR(drive_command(0), 0.62, 1e-9);
-  EXPECT_NEAR(drive_command(1), 0.62, 1e-9);
-  EXPECT_NEAR(drive_command(2), 0.38, 1e-9);
-  EXPECT_NEAR(drive_command(3), 0.38, 1e-9);
+  EXPECT_NEAR(drive_command(0), 2.8783658310120703, 1e-9);
+  EXPECT_NEAR(drive_command(1), 2.8783658310120703, 1e-9);
+  EXPECT_NEAR(drive_command(2), 1.7641597028783658, 1e-9);
+  EXPECT_NEAR(drive_command(3), 1.7641597028783658, 1e-9);
 }
 
 TEST_F(RP1SwerveControllerTest, Locked0PartiallyHomedStillBlocksAllDrive)
@@ -631,8 +681,8 @@ TEST_F(RP1SwerveControllerTest, TwoWheelOnlyLockedPairGatesDrive)
   ASSERT_EQ(
     controller->update(controller->get_node()->now(), period),
     controller_interface::return_type::OK);
-  EXPECT_NEAR(drive_command(2), 0.436, 1e-9);
-  EXPECT_NEAR(drive_command(3), 0.564, 1e-9);
+  EXPECT_NEAR(drive_command(2), 2.02414113277623, 1e-9);
+  EXPECT_NEAR(drive_command(3), 2.6183844011142057, 1e-9);
 }
 
 TEST_F(RP1SwerveControllerTest, FullSwerveNeverGatesOnHoming)
@@ -650,7 +700,7 @@ TEST_F(RP1SwerveControllerTest, FullSwerveNeverGatesOnHoming)
 
   for (std::size_t i = 0; i < 4; ++i)
   {
-    EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
+    EXPECT_NEAR(drive_command(i), 4.642525533890436, 1e-9) << "corner " << i;
     EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
     // Free-steering corners are actively tracking a moving target -- the brake must stay
     // released, never engage on a corner that needs to be free to turn.
@@ -737,7 +787,7 @@ TEST_F(RP1SwerveControllerTest, ActivatesAndDrivesFullSwerveWithoutAnyHomeSensor
   for (std::size_t i = 0; i < 4; ++i)
   {
     EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
-    EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
+    EXPECT_NEAR(drive_command(i), 4.642525533890436, 1e-9) << "corner " << i;
   }
 }
 
@@ -784,7 +834,7 @@ TEST_F(RP1SwerveControllerTest, UnrecognizedModeFallsBackToFullSwerve)
   for (std::size_t i = 0; i < 4; ++i)
   {
     EXPECT_NEAR(steering_command(i), 0.0, 1e-9) << "corner " << i;
-    EXPECT_NEAR(drive_command(i), 1.0, 1e-9) << "corner " << i;
+    EXPECT_NEAR(drive_command(i), 4.642525533890436, 1e-9) << "corner " << i;
   }
 }
 
