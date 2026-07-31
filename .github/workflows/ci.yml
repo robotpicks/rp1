@@ -28,10 +28,14 @@ jobs:
           repository: robotpicks/elrs_ros
           path: elrs_ros
 
+      # vesc_dronecan_ros is private -- the default GITHUB_TOKEN a workflow run gets only grants
+      # access to the repo it's running in, not other private repos in the org, so this needs a
+      # PAT with read access stored as a repo secret.
       - uses: actions/checkout@v4
         with:
           repository: robotpicks/vesc_dronecan_ros
           path: vesc_dronecan_ros
+          token: ${{ secrets.CROSS_REPO_TOKEN }}
 
       - uses: ros-tooling/setup-ros@v0.7
         with:
