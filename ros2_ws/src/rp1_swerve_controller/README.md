@@ -1,9 +1,10 @@
 # rp1_swerve_controller
 
 `ros2_control` `controller_interface::ControllerInterface` plugin for rp1's 4-corner swerve
-base. Started on the `swerve` branch (`master`/main bringup stays 4-wheel-only skid-steer via
-`diff_drive_controller` until this replaces it) — see `rp1-specs/requirements.md` ("Why swerve,
-and what it needs to do") for the operating modes this needs to support, and
+base. On `master` since the `swerve` branch merged (the default MVP bringup still runs
+4-wheel-only skid-steer via `diff_drive_controller` — this hasn't replaced that pipeline, just
+added an opt-in swerve one alongside it) — see `rp1-specs/requirements.md` ("Why swerve, and what
+it needs to do") for the operating modes this needs to support, and
 `rp1-specs/software_spec.md`'s "Swerve controller" section for the broader status.
 
 ## What's here
@@ -11,9 +12,11 @@ and what it needs to do") for the operating modes this needs to support, and
 - Claims 4 drive velocity command interfaces + 4 steering position command interfaces, named via
   the `drive_joints`/`steering_joints` parameters (each a list of exactly 4 names, in
   front_left/front_right/rear_left/rear_right order — matches `docs/can_id_map.md`'s wheel index
-  convention). Also claims a `seek_home` command interface and `home_0deg`/`home_90deg` `<gpio>`
-  state interfaces per steering joint, unless `steering_home_sensors_available` (default `true`)
-  is set `false` — see the homing gate and Gazebo bullets below for why that escape hatch exists.
+  convention). Also claims a `seek_home` command interface, `home_0deg`/`home_90deg` `<gpio>`
+  state interfaces, and a `brake` command interface per steering joint, unless
+  `steering_home_sensors_available`/`steering_brake_available` (both default `true`, independent
+  of each other) are set `false` — see the homing gate, brake, and Gazebo bullets below for why
+  those escape hatches exist.
 - Subscribes `~/cmd_vel` (`geometry_msgs/TwistStamped`, matching `rp1_teleop`'s output and
   `diff_drive_controller`'s convention on this ROS 2 release).
 - Lifecycle (`on_init`/`on_configure`/`on_activate`/`on_deactivate`) and `update()` are wired
@@ -75,6 +78,21 @@ and what it needs to do") for the operating modes this needs to support, and
   against `rp1_swerve_dronecan.launch.py` over `vcan0` (same zero-hold, plus a raw DroneCAN
   sniff confirmed exactly one `COMMAND_TYPE_HOME` `actuator.ArrayCommand` entry per corner
   reaches the wire — not resent every cycle — when switching into `LOCKED_0`).
+- **Steering-hold brake**, closing `rp1-specs/requirements.md`'s "Brake on steering requirement"
+  gap (the 4:1 spur reduction isn't self-locking, so holding a locked angle without continuously
+  drawing motor current needs an actual brake — the firmware side, `bldc`'s `COMMAND_TYPE_BRAKE`,
+  already existed; this was the missing `ros2_control` representation). A `brake` command
+  interface per steering joint, `vesc_dronecan_driver` sends it as a `COMMAND_TYPE_BRAKE`
+  `actuator.Command` entry every cycle — level, not edge-triggered like `seek_home`, so a dropped
+  frame self-heals rather than leaving the brake stuck. Engaged (`1.0`) exactly when a corner is
+  `locked && confirmed` — the same condition that stops gating drive to zero — released (`0.0`)
+  otherwise: free-steering corners, or a locked corner still seeking/unconfirmed (the firmware's
+  `homing_tick()` needs the shaft free to turn during the seek, and would otherwise fight an
+  engaged brake). Verified both via gtest (engages once confirmed, releases while pending, stays
+  released on free-steering corners including `TWO_WHEEL`'s free pair) and live over `vcan0`: the
+  brake stays released while `LOCKED_0` is requested but unconfirmed, and a raw wire sniff
+  confirmed `COMMAND_TYPE_BRAKE` reaches `actuator.ArrayCommand` continuously (not just once, per
+  its level rather than edge-triggered semantics) with the expected value.
 - **Mode-switch safety: a requested mode only becomes active once the chassis is confirmed
   actually stopped.** Complements the homing gate above rather than replacing it — that gate
   only fires when a corner's target angle isn't yet confirmed; this one is a blanket rule
@@ -137,15 +155,16 @@ and what it needs to do") for the operating modes this needs to support, and
   drive/steering feedback comes from an actual simulated rigid-body dynamics solver (inertia,
   gravity, contact), not commands looping straight back to state or a real DroneCAN round-trip
   with no physics at all. GazeboSimSystem only backs standard joint interfaces (position/
-  velocity/effort) with a real Gazebo entity, so it can't export `seek_home` or any `<gpio>`
-  interface (ESC telemetry, `home_0deg`/`home_90deg`) — no Gazebo entity to back those with.
-  Since `controller_manager`'s resource manager refuses to activate a controller that declares
-  an interface no hardware component exports, this can't be requested-then-tolerated-if-missing
-  the way an unexpectedly-absent `steering_home_sensors` name is: the new
-  `steering_home_sensors_available` parameter (default `true`) tells the controller not to
-  request `seek_home`/`home_0deg`/`home_90deg` at all, set to `false` for this tier via
-  `rp1_swerve_gazebo_overrides.yaml`. Practically this means home confirmation is permanently
-  unavailable under Gazebo (same situation as mock hardware, for the same reason — nothing
+  velocity/effort) with a real Gazebo entity, so it can't export `seek_home`/`brake` or any
+  `<gpio>` interface (ESC telemetry, `home_0deg`/`home_90deg`) — no Gazebo entity to back those
+  with. Since `controller_manager`'s resource manager refuses to activate a controller that
+  declares an interface no hardware component exports, this can't be requested-then-tolerated-
+  if-missing the way an unexpectedly-absent `steering_home_sensors` name is:
+  `steering_home_sensors_available`/`steering_brake_available` parameters (both default `true`)
+  tell the controller not to request `seek_home`/`home_0deg`/`home_90deg`/`brake` at all, set to
+  `false` for this tier via `rp1_swerve_gazebo_overrides.yaml`. Practically this means home
+  confirmation is permanently unavailable under Gazebo (same situation as mock hardware, for the
+  same reason — nothing
   simulates the proximity sensors), so only `FULL_SWERVE` drives; `LOCKED_0`/`LOCKED_90`/
   `TWO_WHEEL` stay correctly gated at zero forever. Verified live: both `joint_state_broadcaster`
   and `rp1_swerve_controller` activate cleanly against the spawned model, and driving straight
@@ -212,7 +231,7 @@ gaps are both closed above.
 
 ## Tests
 
-`test/test_rp1_swerve_controller.cpp` — 19 gtest cases, run via `colcon test --packages-select
+`test/test_rp1_swerve_controller.cpp` — 21 gtest cases, run via `colcon test --packages-select
 rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
 `StateInterface` objects (not a mock hardware component), drives the actual lifecycle
 (`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
@@ -231,10 +250,11 @@ drive/steering state defers a requested switch, adopting it only once state sett
 a controller that's never received state feedback is treated as already stopped), mode-switch
 ramping (a deferred switch's drive command strictly decreases cycle-over-cycle while `~/cmd_vel`
 keeps holding its original nonzero value, settling at exactly zero and staying there), and
-`steering_home_sensors_available:false` (mirroring Gazebo: no seek_home/home_0deg/home_90deg
-interfaces assigned at all, not just unconfirmed) -- the controller still activates and drives
-`FULL_SWERVE` normally, and `LOCKED_0` stays gated at zero across several cycles, not just the
-first.
+`steering_home_sensors_available`/`steering_brake_available:false` (mirroring Gazebo: no
+seek_home/home_0deg/home_90deg/brake interfaces assigned at all, not just unconfirmed) -- the
+controller still activates and drives `FULL_SWERVE` normally, and `LOCKED_0` stays gated at zero
+across several cycles, not just the first. The brake itself: engages once a locked corner is
+confirmed, releases while pending, and stays released on `TWO_WHEEL`'s free-steering pair.
 
 Not chainable (`controller_interface::ControllerInterface`, not `ChainableControllerInterface`)
 — unlike this ROS 2 release's `diff_drive_controller`/`mecanum_drive_controller`. Revisit only if

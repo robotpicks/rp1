@@ -74,6 +74,7 @@ public:
       steering_position_command_.push_back(make_command_interface(name, "position"));
       steering_position_state_.push_back(make_state_interface(name, "position"));
       steering_seek_home_command_.push_back(make_command_interface(name, "seek_home"));
+      steering_brake_command_.push_back(make_command_interface(name, "brake"));
     }
     for (const auto & name : home_sensor_names_)
     {
@@ -95,8 +96,11 @@ public:
   // must also pass steering_home_sensors_available:false in extra_params, or on_activate() will
   // still try to find interfaces this helper never assigned and the controller will fail to
   // activate -- exactly mirroring the real controller_manager behavior this is testing.
+  // include_brake=false does the same for the "brake" command interface, independently --
+  // steering_brake_available_ is a separate parameter from steering_home_sensors_available_.
   std::unique_ptr<rp1_swerve_controller::RP1SwerveController> bring_up(
-    const std::vector<rclcpp::Parameter> & extra_params = {}, bool include_home_sensors = true)
+    const std::vector<rclcpp::Parameter> & extra_params = {}, bool include_home_sensors = true,
+    bool include_brake = true)
   {
     auto controller = std::make_unique<rp1_swerve_controller::RP1SwerveController>();
 
@@ -132,6 +136,10 @@ public:
       for (auto & iface : steering_seek_home_command_) command_interfaces.emplace_back(iface);
       for (auto & iface : steering_home_0deg_state_) state_interfaces.emplace_back(iface);
       for (auto & iface : steering_home_90deg_state_) state_interfaces.emplace_back(iface);
+    }
+    if (include_brake)
+    {
+      for (auto & iface : steering_brake_command_) command_interfaces.emplace_back(iface);
     }
     controller->assign_interfaces(std::move(command_interfaces), std::move(state_interfaces));
 
@@ -220,6 +228,12 @@ public:
       std::numeric_limits<double>::quiet_NaN());
   }
 
+  double brake_command(std::size_t corner_index) const
+  {
+    return steering_brake_command_[corner_index]->get_optional<double>().value_or(
+      std::numeric_limits<double>::quiet_NaN());
+  }
+
   // Sets every corner's home_0deg (or home_90deg) gpio state, simulating a hardware bring-up
   // that has already homed -- tests exercising LOCKED_0/LOCKED_90/TWO_WHEEL's actual IK math (as
   // opposed to the homing gate itself) call this first so the new gate in
@@ -268,6 +282,7 @@ public:
   std::vector<hardware_interface::CommandInterface::SharedPtr> steering_seek_home_command_;
   std::vector<hardware_interface::StateInterface::SharedPtr> steering_home_0deg_state_;
   std::vector<hardware_interface::StateInterface::SharedPtr> steering_home_90deg_state_;
+  std::vector<hardware_interface::CommandInterface::SharedPtr> steering_brake_command_;
 };
 
 // CornerIndex order used throughout: front_left, front_right, rear_left, rear_right.
@@ -687,19 +702,78 @@ TEST_F(RP1SwerveControllerTest, FullSwerveNeverGatesOnHoming)
   {
     EXPECT_NEAR(drive_command(i), 4.642525533890436, 1e-9) << "corner " << i;
     EXPECT_TRUE(std::isnan(seek_home_command(i))) << "corner " << i;
+    // Free-steering corners are actively tracking a moving target -- the brake must stay
+    // released, never engage on a corner that needs to be free to turn.
+    EXPECT_NEAR(brake_command(i), 0.0, 1e-9) << "corner " << i;
   }
+}
+
+TEST_F(RP1SwerveControllerTest, Locked0EngagesBrakeOnceConfirmedReleasesWhilePending)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  publish_mode(*controller, 1);  // LOCKED_0
+  publish_cmd_vel(*controller, 0.5, 0.0, 0.3);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+
+  // Unconfirmed (fresh bring-up, home_0deg defaults false): still seeking, so the brake must
+  // stay released -- the firmware's homing_tick() needs the shaft free to turn, and engaging
+  // here would fight that seek.
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(brake_command(i), 0.0, 1e-9) << "corner " << i << " should be released while unhomed";
+  }
+
+  // Confirmed: the corner is now trustworthy enough to stop actively driving it (the drive-zero
+  // gate lifts, per Locked0BlocksDriveAndRequestsSeekHomeUntilConfirmed) -- the brake should
+  // engage at the same moment, to hold the angle without continuous motor current.
+  set_all_home_0deg(true);
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(brake_command(i), 1.0, 1e-9) << "corner " << i << " should engage once confirmed";
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, TwoWheelEngagesBrakeOnlyOnTheLockedPair)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  set_all_home_0deg(true);  // locked pair's reference already confirmed
+  publish_mode(*controller, 3);  // TWO_WHEEL
+  publish_cmd_vel(*controller, 0.5, 0.2, 0.1);
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+
+  // Default two_wheel_steered_corners is the front pair -- front corners free-steer (brake
+  // released), rear corners are locked-and-confirmed (brake engaged).
+  EXPECT_NEAR(brake_command(0), 0.0, 1e-9);  // front_left, free
+  EXPECT_NEAR(brake_command(1), 0.0, 1e-9);  // front_right, free
+  EXPECT_NEAR(brake_command(2), 1.0, 1e-9);  // rear_left, locked + confirmed
+  EXPECT_NEAR(brake_command(3), 1.0, 1e-9);  // rear_right, locked + confirmed
 }
 
 TEST_F(RP1SwerveControllerTest, ActivatesAndDrivesFullSwerveWithoutAnyHomeSensorInterfaces)
 {
-  // Mirrors gz_ros2_control's GazeboSimSystem: no seek_home/home_0deg/home_90deg interfaces
-  // exist anywhere in the system at all (not just unconfirmed, as every other test in this file
-  // has them). steering_home_sensors_available:false must be set, or on_activate() would still
-  // try to find interfaces this bring_up() call never assigned and fail to activate -- the same
-  // failure this whole parameter exists to avoid (see the controller's README).
+  // Mirrors gz_ros2_control's GazeboSimSystem: no seek_home/home_0deg/home_90deg/brake
+  // interfaces exist anywhere in the system at all (not just unconfirmed, as every other test in
+  // this file has them). steering_home_sensors_available/steering_brake_available:false must be
+  // set, or on_activate() would still try to find interfaces this bring_up() call never assigned
+  // and fail to activate -- the same failure these parameters exist to avoid (see the
+  // controller's README).
   auto controller = bring_up(
-    {rclcpp::Parameter("steering_home_sensors_available", false)},
-    /*include_home_sensors=*/false);
+    {rclcpp::Parameter("steering_home_sensors_available", false),
+     rclcpp::Parameter("steering_brake_available", false)},
+    /*include_home_sensors=*/false, /*include_brake=*/false);
   ASSERT_NE(controller, nullptr);
 
   publish_cmd_vel(*controller, 1.0, 0.0, 0.0);
@@ -720,8 +794,9 @@ TEST_F(RP1SwerveControllerTest, ActivatesAndDrivesFullSwerveWithoutAnyHomeSensor
 TEST_F(RP1SwerveControllerTest, Locked0StaysGatedForeverWithoutAnyHomeSensorInterfaces)
 {
   auto controller = bring_up(
-    {rclcpp::Parameter("steering_home_sensors_available", false)},
-    /*include_home_sensors=*/false);
+    {rclcpp::Parameter("steering_home_sensors_available", false),
+     rclcpp::Parameter("steering_brake_available", false)},
+    /*include_home_sensors=*/false, /*include_brake=*/false);
   ASSERT_NE(controller, nullptr);
 
   publish_mode(*controller, 1);  // LOCKED_0

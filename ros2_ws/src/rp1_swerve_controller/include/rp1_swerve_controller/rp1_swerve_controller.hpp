@@ -92,6 +92,13 @@ protected:
   // at all when this is false. Set via the steering_home_sensors_available parameter (default
   // true, matching mock/real DroneCAN hardware, both of which do export these).
   bool steering_home_sensors_available_ = true;
+  // Same reasoning as steering_home_sensors_available_ above, for the steering-hold brake
+  // (rp1-specs/requirements.md's "Brake on steering requirement"): GazeboSimSystem has no
+  // physical brake actuator to back a "brake" command interface with, so it must not be
+  // requested at all there. Set via the steering_brake_available parameter (default true).
+  // Independent of steering_home_sensors_available_ -- a hardware component could plausibly
+  // have one without the other, even though today's real/mock tiers always have both.
+  bool steering_brake_available_ = true;
 
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     drive_velocity_command_;
@@ -105,6 +112,11 @@ protected:
   // why it can't just be requested-then-tolerated-if-missing).
   std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
     steering_seek_home_command_;
+  // Level, not edge-triggered (unlike seek_home): nonzero engages/locks the brake, 0.0 releases
+  // -- see compute_corner_commands()'s header comment for when each is commanded. EMPTY when
+  // steering_brake_available_ is false, same reasoning as steering_seek_home_command_ above.
+  std::vector<std::reference_wrapper<hardware_interface::LoanedCommandInterface>>
+    steering_brake_command_;
 
   // State feedback, read each update() to compute odometry -- NOT used by
   // compute_corner_commands() (the IK is open-loop from cmd_vel, same as before). On mock
@@ -257,10 +269,22 @@ private:
   // unconfirmed) and seek_home_command carries 0.0/1.0 for that corner (NaN = no active
   // request, matching vesc_dronecan_driver's edge-triggered convention) -- the corner's steering
   // position command still targets the locked angle as usual, so it can visibly seek in place.
+  //
+  // Steering-hold brake (rp1-specs/requirements.md's "Brake on steering requirement" -- the 4:1
+  // spur reduction isn't self-locking, so holding a locked angle without continuously drawing
+  // motor current needs an actual brake): brake_command[i] is 1.0 (engage/stiff) exactly when
+  // corner i is locked to a fixed angle THIS mode AND that angle is confirmed via home_0deg/
+  // home_90deg -- the same "locked && confirmed" condition that stops gating drive to zero.
+  // Reusing that condition means the brake engages the instant a corner is trustworthy enough to
+  // stop actively driving it, and releases again the instant it isn't (free-steering corners,
+  // or a locked corner that's still seeking/unconfirmed) -- matching vesc_dronecan_driver's
+  // level-based (not edge-triggered) "brake" command interface, which is simply resent every
+  // cycle with whatever this array currently holds.
   void compute_corner_commands(
     SwerveMode mode, const TwistStamped & cmd_vel, std::array<double, NUM_CORNERS> & wheel_velocity,
     std::array<double, NUM_CORNERS> & steering_angle,
-    std::array<double, NUM_CORNERS> & seek_home_command);
+    std::array<double, NUM_CORNERS> & seek_home_command,
+    std::array<double, NUM_CORNERS> & brake_command);
 };
 
 }  // namespace rp1_swerve_controller

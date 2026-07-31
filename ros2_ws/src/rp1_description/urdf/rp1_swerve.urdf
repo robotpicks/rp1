@@ -293,6 +293,7 @@
       <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
+      <command_interface name="brake"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
@@ -307,6 +308,7 @@
       <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
+      <command_interface name="brake"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
@@ -321,6 +323,7 @@
       <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
+      <command_interface name="brake"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
@@ -335,6 +338,7 @@
       <param name="position_proportional_gain">50.0</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
+      <command_interface name="brake"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
     </joint>
@@ -394,7 +398,7 @@
   GazeboSimSystem for that tier (same technique rp1_swerve_mock.launch.py already uses for
   mock_components/GenericSystem); GazeboSimSystem only understands standard joint interfaces
   (position/velocity/effort) backed by a real Gazebo joint entity, so it does not export
-  seek_home or any <gpio> state interface (no physical entity to back those with) -- see
+  seek_home, brake, or any <gpio> state interface (no physical entity to back those with) -- see
   rp1_swerve_controller's README for how the controller tolerates that. The placeholder text
   below the <parameters> tag gets substituted with rp1_swerve_controllers.yaml's real installed
   path at launch time, the same way can_iface does for rp1_swerve_dronecan.launch.py. -->

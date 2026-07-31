@@ -2,8 +2,8 @@
 # second --param-file argument (later files win for the same key).
 #
 # gz_ros2_control's GazeboSimSystem only backs standard joint interfaces (position/velocity/
-# effort) with a real Gazebo entity -- it has no physical concept of the seek_home command
-# interface or the home_0deg/home_90deg <gpio> blocks rp1_swerve.urdf also declares for
+# effort) with a real Gazebo entity -- it has no physical concept of the seek_home/brake command
+# interfaces or the home_0deg/home_90deg <gpio> blocks rp1_swerve.urdf also declares for
 # vesc_dronecan_driver's benefit. controller_manager's resource manager refuses to activate a
 # controller that declares an interface no hardware component actually exports, so
 # rp1_swerve_controller must be told NOT to request them at all here, rather than requesting and
@@ -11,3 +11,4 @@
 rp1_swerve_controller:
   ros__parameters:
     steering_home_sensors_available: false
+    steering_brake_available: false
