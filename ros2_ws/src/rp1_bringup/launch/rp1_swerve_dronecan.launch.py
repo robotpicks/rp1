@@ -21,16 +21,18 @@ VESCs or Gazebo.
 
   rviz:=true / keyboard:=true / rqt_steering:=true match rp1_swerve_mock.launch.py.
 
-  Verified against `can_iface:=vcan0` plus both simulator scripts: driving straight produced
-  real, nonzero drive joint velocity/position in `/joint_states` fed back over actual DroneCAN
-  framing (not just commands looping back, like the mock tier). Getting this far required two
-  bug fixes: `dronecan`'s driver-dispatch bug (see the simulator scripts'
-  `_force_native_socketcan_driver()`) and a `vesc_dronecan_driver` bug where multi-frame
-  transfers (esc.Status, actuator.Status) were silently dropped because `pumpRx()` passed a
-  hardcoded `timestamp_usec=0` to libcanard instead of a real monotonic clock -- see that
-  repo's swerve-branch history for the fix. Steering feedback was not independently checked
-  beyond confirming the controller activates with all 4 steering command interfaces available;
-  see rp1_swerve_controller/README.md's "What's not here yet" for what's still unverified.
+  Verified against `can_iface:=vcan0` plus both simulator scripts, for both drive and steering:
+  driving straight produced real, nonzero drive joint velocity/position in `/joint_states`, and
+  a turn-in-place command produced steering joint positions matching the hand-computed
+  full-swerve angles exactly -- both fed back over actual DroneCAN framing (not just commands
+  looping back, like the mock tier). Getting this far required three bug fixes, all on the
+  `vesc_dronecan_ros` swerve branch except the first: `dronecan`'s driver-dispatch bug (see the
+  simulator scripts' `_force_native_socketcan_driver()`); `pumpRx()` passing a hardcoded
+  `timestamp_usec=0` to libcanard, which broke multi-frame transfer reassembly for both
+  esc.Status and actuator.Status; and actuator.Status's decoder hard-failing its *entire* decode
+  (not just the 2 extension fields) whenever the home_0deg/home_90deg private-extension bits
+  were absent -- which they always are from a standard, non-extended sender like
+  sim_actuator_node.py. See that repo's swerve-branch history for each fix.
 """
 import os
 import re

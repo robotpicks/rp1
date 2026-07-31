@@ -78,18 +78,26 @@ and what it needs to do") for the operating modes this needs to support, and
   on the next control cycle with whatever `cmd_vel` happens to be current; there's no ramping,
   no requirement to be stopped first, no rejection of a switch mid-turn.
 - Not wired into Gazebo physics yet.
-- **Real DroneCAN hardware path verified for drive, not steering.** `rp1_swerve_dronecan.launch.py`
-  (against `vesc_dronecan_driver`, real wire framing over `can0`/`vcan0`) drove straight and
-  produced genuine nonzero drive-wheel velocity/position in `/joint_states` fed back over actual
-  DroneCAN traffic — a meaningfully different trust level than the mock-hardware tier, where
-  odometry is computed from state that's just last cycle's command looped back. Steering
-  feedback wasn't independently exercised beyond confirming all 4 `steering_*/position` command
-  interfaces are available and the controller activates. Getting drive feedback working required
-  fixing a real bug: `vesc_dronecan_driver`'s `pumpRx()` passed a hardcoded `timestamp_usec=0` to
-  libcanard, which made every multi-frame transfer (`esc.Status`, `actuator.Status`) look
-  "never initialized" on its second frame and get silently dropped — single-frame transfers
-  (`esc.RPMCommand`, `actuator.ArrayCommand`) were unaffected, which is why this went unnoticed
-  until real feedback was checked.
+- **Real DroneCAN hardware path verified for both drive and steering.**
+  `rp1_swerve_dronecan.launch.py` (against `vesc_dronecan_driver`, real wire framing over
+  `can0`/`vcan0`) drove straight and produced genuine nonzero drive-wheel velocity/position in
+  `/joint_states`; a turn-in-place command produced steering positions matching the
+  hand-computed full-swerve angles exactly (`±0.5586 rad` on all 4 corners, alternating sign per
+  the angle-flip optimization) — both fed back over actual DroneCAN traffic, a meaningfully
+  different trust level than the mock-hardware tier, where odometry is computed from state
+  that's just last cycle's command looped back. Getting there required fixing three real bugs
+  (all in `vesc_dronecan_ros`'s swerve branch except the dronecan driver-dispatch one): (1)
+  `dronecan`'s driver-dispatch bug in the simulator scripts; (2) `pumpRx()` passed a hardcoded
+  `timestamp_usec=0` to libcanard, which made every multi-frame transfer (`esc.Status`,
+  `actuator.Status`) look "never initialized" on its second frame and get silently dropped —
+  single-frame transfers (`esc.RPMCommand`, `actuator.ArrayCommand`) were unaffected, which is
+  why this went unnoticed until real feedback was checked; (3) `actuator.Status`'s decoder
+  hard-failed the *entire* decode (throwing away position/speed/force too, not just the 2
+  extension fields) whenever the private `home_0deg`/`home_90deg` extension bits were absent —
+  which they always are from a standard, non-extended sender like `sim_actuator_node.py`. The
+  extension bits themselves (and `seek_home`/`COMMAND_TYPE_HOME`) still aren't exercised by
+  these simulator scripts, since the stock `dronecan` Python codec doesn't know to populate
+  them — only a real bldc-flashed VESC (or a simulator taught the extension) would cover that.
 
 ## Tests
 
