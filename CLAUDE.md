@@ -105,16 +105,28 @@ prefer a small standalone `rclpy` subscriber script over `ros2 topic echo` if a 
 to hang without an obvious code reason.
 
 The installed `dronecan` (1.0.27) + `python-can` (4.6.1) pair has two real bugs, both worked
-around in `bridge_node.py` and `simulation/sim_vesc_node.py` — don't remove these if you see
-them and think they look unnecessary:
-- `dronecan`'s python-can driver calls `bus.flush_tx_buffer()` after every send; python-can ≥4
-  doesn't implement it for any interface (`NotImplementedError`), which kills the writer thread
-  on the first broadcast. Worked around by monkeypatching `can.bus.BusABC.flush_tx_buffer` to a
-  no-op (`_patch_python_can_flush_tx_buffer()` in both files).
+around in `simulation/sim_vesc_node.py` and `simulation/sim_actuator_node.py` — don't remove
+these if you see them and think they look unnecessary:
+- `dronecan.driver.make_driver()` always prefers its python-can-backed `PythonCAN` driver over
+  the native `SocketCAN` one whenever `python-can` is merely importable, and that path is broken
+  against python-can 4.6.1 -- `node.broadcast()` silently queues a frame that never reaches the
+  bus, and `node.spin()` then hangs indefinitely instead of timing out. Worked around by
+  monkeypatching `dronecan.driver.PythonCAN = None` before `make_node()`
+  (`_force_native_socketcan_driver()` in both files), which forces `make_driver()` to fall
+  through to the native SocketCAN class instead (Linux-only, no python-can involved).
 - `dronecan`'s `receive()` multiplies any `spin(timeout=X)` by 1000 before passing it to
   python-can's `recv()`, which wants seconds, not ms — so `spin(timeout=0.1)` blocks for ~100s
   instead of 100ms. Only `spin(timeout=0)` is safe; both files busy-poll with `timeout=0` plus a
   short `sleep`/ROS2 timer instead of relying on a blocking nonzero timeout.
+
+The C++ side (`vesc_dronecan_driver`, in the `vesc_dronecan_ros` submodule) had a matching bug on
+the swerve branch: `pumpRx()` called libcanard's `canardHandleRxFrame()` with a hardcoded
+`timestamp_usec=0`, which libcanard's rx state machine reads as "state never initialized" --
+so the second frame of any multi-frame transfer looked uninitialized again and the whole
+transfer was silently dropped. `esc.Status` and `actuator.Status` are both multi-frame (single-
+frame RPMCommand/ArrayCommand transfers were unaffected, which is why this went unnoticed until
+real feedback was checked over `vcan0`). Fixed by passing a real monotonic microsecond timestamp
+instead of the constant.
 
 Python deps are declared as rosdep keys in each `package.xml` and installed with
 `./robotpicks.sh deps` (rosdep) from the meta repo — don't hand-roll `pip install` lines, and

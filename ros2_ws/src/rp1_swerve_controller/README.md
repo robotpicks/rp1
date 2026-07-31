@@ -77,10 +77,19 @@ and what it needs to do") for the operating modes this needs to support, and
 - **No mode-switch safety handling** — switching modes while the robot is moving takes effect
   on the next control cycle with whatever `cmd_vel` happens to be current; there's no ramping,
   no requirement to be stopped first, no rejection of a switch mid-turn.
-- Not wired into the real DroneCAN hardware path (`vesc_dronecan_driver` against `can0`/`vcan0`)
-  or Gazebo physics yet — only the mock-hardware bringup exists so far. On mock hardware the
-  odometry above is computed from state that's just last cycle's command looped back, not real
-  sensor feedback -- a meaningfully different trust level once real VESC feedback is in the loop.
+- Not wired into Gazebo physics yet.
+- **Real DroneCAN hardware path verified for drive, not steering.** `rp1_swerve_dronecan.launch.py`
+  (against `vesc_dronecan_driver`, real wire framing over `can0`/`vcan0`) drove straight and
+  produced genuine nonzero drive-wheel velocity/position in `/joint_states` fed back over actual
+  DroneCAN traffic — a meaningfully different trust level than the mock-hardware tier, where
+  odometry is computed from state that's just last cycle's command looped back. Steering
+  feedback wasn't independently exercised beyond confirming all 4 `steering_*/position` command
+  interfaces are available and the controller activates. Getting drive feedback working required
+  fixing a real bug: `vesc_dronecan_driver`'s `pumpRx()` passed a hardcoded `timestamp_usec=0` to
+  libcanard, which made every multi-frame transfer (`esc.Status`, `actuator.Status`) look
+  "never initialized" on its second frame and get silently dropped — single-frame transfers
+  (`esc.RPMCommand`, `actuator.ArrayCommand`) were unaffected, which is why this went unnoticed
+  until real feedback was checked.
 
 ## Tests
 
