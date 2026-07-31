@@ -23,7 +23,10 @@ or a real DroneCAN round-trip with no physics at all.
   and gz sim's rendering stack needs one even for a mostly-invisible run. Set headless:=false on
   a real desktop to watch the robot in the Gazebo GUI.
 
-  rviz:=true / keyboard:=true / rqt_steering:=true match rp1_swerve_mock.launch.py.
+  rviz:=true / keyboard:=true / rqt_steering:=true match rp1_swerve_mock.launch.py. joy:=true
+  starts joy_node + rp1_teleop (Xbox controller) instead, for both cmd_vel and ~/mode switching
+  (A/B/X/Y -> FULL_SWERVE/LOCKED_0/LOCKED_90/TWO_WHEEL, hold LB) -- see
+  rp1_teleop/config/joy_xbox_series_x.yaml for the button mapping.
 """
 import os
 import re
@@ -120,6 +123,8 @@ def generate_launch_description():
     # docstring for why GazeboSimSystem can't back them with anything.
     gazebo_overrides_config = os.path.join(
         bringup_share, 'config', 'rp1_swerve_gazebo_overrides.yaml')
+    joy_xbox_config = os.path.join(
+        get_package_share_directory('rp1_teleop'), 'config', 'joy_xbox_series_x.yaml')
 
     spawn_entity = Node(
         package='ros_gz_sim',
@@ -176,6 +181,11 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'rqt_steering', default_value='false',
             description='Start rqt_robot_steering (mouse-driven slider GUI) instead.'),
+        DeclareLaunchArgument(
+            'joy', default_value='false',
+            description='Start joy_node + rp1_teleop (Xbox controller) for cmd_vel AND mode '
+                        'switching (A/B/X/Y -> FULL_SWERVE/LOCKED_0/LOCKED_90/TWO_WHEEL, hold LB '
+                        '-- see rp1_teleop/config/joy_xbox_series_x.yaml).'),
 
         # The URDF's <mesh filename="package://rp1_description/meshes/..."> becomes a
         # "model://rp1_description/meshes/..." URI once urdf2sdf converts it -- gz-sim resolves
@@ -222,6 +232,25 @@ def generate_launch_description():
                 'default_stamped': True,
             }],
             condition=IfCondition(LaunchConfiguration('rqt_steering')),
+        ),
+        Node(
+            package='joy',
+            executable='joy_node',
+            name='joy_node',
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('joy')),
+        ),
+        Node(
+            package='rp1_teleop',
+            executable='teleop_node',
+            name='teleop_node',
+            parameters=[joy_xbox_config],
+            remappings=[
+                ('cmd_vel', '/rp1_swerve_controller/cmd_vel'),
+                ('mode', '/rp1_swerve_controller/mode'),
+            ],
+            output='screen',
+            condition=IfCondition(LaunchConfiguration('joy')),
         ),
 
         # gz_ros2_control's plugin only finishes registering the controller_manager services

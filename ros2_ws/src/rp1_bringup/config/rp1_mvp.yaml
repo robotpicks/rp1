@@ -20,3 +20,8 @@ elrs_driver:               # the generic CRSF driver from the elrs_ros submodule
   ros__parameters:
     serial_port: /dev/ttyUSB0  # ELRS receiver's UART (USB adapter, or /dev/ttyAMA0 on a Pi header)
     require_serial: true       # set false to dry-run without the receiver (telemetry logged, no RC)
+    # To feed rp1_teleop's mode_buttons (see rp1_elrs/config/joy_elrs.yaml) over ELRS, add e.g.:
+    #   button_channels: [5, 6, 7, 8]   # 4 spare 2-position switches -- check your TX's mixer
+    #   button_indices: [0, 1, 2, 3]    # must match joy_elrs.yaml's mode_buttons order
+    # Left unset here: which channels are actually free depends on the transmitter and hasn't
+    # been verified against real hardware yet.

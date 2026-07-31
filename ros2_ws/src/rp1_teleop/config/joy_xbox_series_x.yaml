@@ -15,3 +15,8 @@ teleop_node:
     invert_angular: false
     deadman_button: 4      # LB
     joy_timeout_sec: 0.5   # publish zero Twist if /joy goes stale for longer than this
+
+    # ~/mode (rp1_swerve_controller's SwerveMode), hold LB + press one of these -- index in this
+    # list is the SwerveMode value published, so position 0 -> FULL_SWERVE, 1 -> LOCKED_0,
+    # 2 -> LOCKED_90, 3 -> TWO_WHEEL. No effect on bringups with no swerve controller listening.
+    mode_buttons: [0, 1, 2, 3]   # A, B, X, Y
