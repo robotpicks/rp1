@@ -7,13 +7,24 @@ and button mapping, which should be verified against the real controller before 
 TwistStamped rather than Twist: diff_drive_controller in this ROS 2 release subscribes to
 TwistStamped only -- there is no use_stamped_vel escape hatch any more -- and the controller is
 what consumes this topic now that rp1_control is gone.
+
+Also publishes ~/mode (std_msgs/UInt8, rp1_swerve_controller's SwerveMode) for bringups that use
+it -- mode_buttons lists Joy button indices in SwerveMode order (index 0 -> FULL_SWERVE, 1 ->
+LOCKED_0, etc.), empty by default so a bringup that doesn't set it (e.g. the skid-steer MVP, which
+has no swerve controller listening) publishes nothing. Edge-triggered (one message per press, not
+resent every cycle while held) and gated on the same deadman button as cmd_vel -- mode-switching
+doesn't itself move the robot (rp1_swerve_controller's own mode-switch-safety gate and ramping
+handle that), but requiring the deadman avoids a stray button press changing modes while the
+operator isn't actively holding the controller.
 """
 
 import rclpy
 from geometry_msgs.msg import TwistStamped
+from rcl_interfaces.msg import ParameterDescriptor
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
+from std_msgs.msg import UInt8
 
 
 class TeleopNode(Node):
@@ -30,6 +41,14 @@ class TeleopNode(Node):
         self.declare_parameter('deadman_button', 4)
         self.declare_parameter('joy_timeout_sec', 0.5)
         self.declare_parameter('frame_id', 'base_link')
+        # dynamic_typing=True: an empty-list default alone makes rclpy infer this parameter's
+        # fixed type as BYTE_ARRAY (Python can't distinguish an empty int/byte/string array
+        # literal), which then rejects a non-empty integer-array override from a params file as a
+        # type mismatch. Passing an explicit `type=` in the descriptor doesn't help -- rclpy
+        # still overwrites it from the default value's inferred type -- dynamic_typing is the
+        # actual escape hatch, letting this parameter's type float to whatever it's set to.
+        self.declare_parameter(
+            'mode_buttons', [], ParameterDescriptor(dynamic_typing=True))
 
         self._axis_linear = self.get_parameter('axis_linear').value
         self._axis_angular = self.get_parameter('axis_angular').value
@@ -40,10 +59,13 @@ class TeleopNode(Node):
         self._deadman_button = self.get_parameter('deadman_button').value
         self._joy_timeout = self.get_parameter('joy_timeout_sec').value
         self._frame_id = self.get_parameter('frame_id').value
+        self._mode_buttons = list(self.get_parameter('mode_buttons').value)
+        self._mode_button_prev = [False] * len(self._mode_buttons)
 
         self._last_joy_time = None
 
         self._cmd_vel_pub = self.create_publisher(TwistStamped, 'cmd_vel', 10)
+        self._mode_pub = self.create_publisher(UInt8, 'mode', 10)
         self.create_subscription(Joy, 'joy', self._on_joy, 10)
         self.create_timer(0.1, self._watchdog)
 
@@ -64,6 +86,18 @@ class TeleopNode(Node):
             twist.twist.angular.z = self._sign_angular * angular * self._scale_angular
 
         self._cmd_vel_pub.publish(twist)
+        self._handle_mode_buttons(msg, deadman_held)
+
+    def _handle_mode_buttons(self, msg: Joy, deadman_held: bool) -> None:
+        for mode_value, button_idx in enumerate(self._mode_buttons):
+            pressed = len(msg.buttons) > button_idx and msg.buttons[button_idx] == 1
+            if pressed and not self._mode_button_prev[mode_value] and deadman_held:
+                mode_msg = UInt8()
+                mode_msg.data = mode_value
+                self._mode_pub.publish(mode_msg)
+                self.get_logger().info(
+                    'mode -> %d (button %d)' % (mode_value, button_idx))
+            self._mode_button_prev[mode_value] = pressed
 
     def _new_twist(self) -> TwistStamped:
         twist = TwistStamped()

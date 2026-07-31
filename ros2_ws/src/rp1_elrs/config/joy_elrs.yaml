@@ -16,3 +16,10 @@ teleop_node:
     invert_angular: false
     deadman_button: 4     # Joy button 4 == the ELRS arm switch (see rp1_elrs.yaml deadman_*)
     joy_timeout_sec: 0.5  # zero Twist if /joy goes stale (elrs_node also fails RC safe upstream)
+
+    # ~/mode (rp1_swerve_controller's SwerveMode) -- same Joy button indices as
+    # joy_xbox_series_x.yaml (0->FULL_SWERVE, 1->LOCKED_0, 2->LOCKED_90, 3->TWO_WHEEL), but these
+    # only exist in /joy if elrs_driver's button_channels/button_indices are configured to map
+    # real transmitter switches onto them (see rp1_bringup/config/rp1_mvp.yaml) -- elrs_driver's
+    # own default only ever populates the deadman bit.
+    mode_buttons: [0, 1, 2, 3]
