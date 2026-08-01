@@ -140,9 +140,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--speed', type=float, default=0.5,
                         help='forward speed to command, m/s (default: 0.5)')
-    parser.add_argument('--wheel-radius', type=float, default=0.1,
+    # Keep this default in step with rp1_controllers.yaml's wheel_radius by hand, like the
+    # yaml itself asks vs the URDF -- graded against a stale radius, a perfectly working
+    # loopback fails with every wheel uniformly at speed/actual_radius rad/s.
+    parser.add_argument('--wheel-radius', type=float, default=0.215396,
                         help="diff_drive_controller's wheel_radius, which turns the commanded "
-                             'speed into the expected wheel rad/s (default: 0.1)')
+                             'speed into the expected wheel rad/s (default: 0.215396)')
     parser.add_argument('--tolerance', type=float, default=0.25,
                         help='allowed deviation from the expected rad/s (default: 0.25)')
     parser.add_argument('--timeout', type=float, default=20.0,
