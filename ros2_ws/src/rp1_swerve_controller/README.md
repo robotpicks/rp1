@@ -18,7 +18,8 @@ it needs to do") for the operating modes this needs to support, and
   of each other) are set `false` — see the homing gate, brake, and Gazebo bullets below for why
   those escape hatches exist.
 - Subscribes `~/cmd_vel` (`geometry_msgs/TwistStamped`, matching `rp1_teleop`'s output and
-  `diff_drive_controller`'s convention on this ROS 2 release).
+  `diff_drive_controller`'s convention on this ROS 2 release), guarded by the `cmd_vel_timeout`
+  staleness watchdog — see its bullet below.
 - Lifecycle (`on_init`/`on_configure`/`on_activate`/`on_deactivate`) and `update()` are wired
   end-to-end and safe to load/activate.
 - **Real swerve inverse kinematics.** `compute_corner_commands()` decomposes `(vx, vy, wz)` into
@@ -223,6 +224,17 @@ it needs to do") for the operating modes this needs to support, and
   publishing `vx=1.0` showed wheel velocity smoothly decelerating from steady-state (~4.64 rad/s)
   to zero over ~2s (matching the default deceleration rate), after which steering committed to
   the locked 0° angle.
+- **`cmd_vel` staleness watchdog.** `diff_drive_controller`'s `cmd_vel_timeout`, which the MVP
+  skid-steer path already relies on (and CI's DroneCAN loopback check asserts), had no
+  counterpart here: `update()` latched the last twist forever, so a dead publisher — teleop
+  crash, RC dropout, or just a `ros2 topic pub` that exited — left the robot driving its last
+  command indefinitely (observed for real under Gazebo: still strafing at 0.3 m/s a minute after
+  the publisher stopped). Now a command whose `header.stamp` is older than `cmd_vel_timeout`
+  (seconds, default 0.5, validated > 0) is treated as no command at all: every drive velocity
+  goes to zero while the steering positions keep holding the last commanded angle — coasting out
+  straight beats snapping the wheels back to 0° mid-roll, which would scrub. Unstamped messages
+  are stamped at reception so they age correctly; a fresh command revives driving immediately
+  (the watchdog gates on message age, not a latched fault).
 
 ## What's not here yet
 
@@ -231,7 +243,7 @@ gaps are both closed above.
 
 ## Tests
 
-`test/test_rp1_swerve_controller.cpp` — 21 gtest cases, run via `colcon test --packages-select
+`test/test_rp1_swerve_controller.cpp` — 24 gtest cases, run via `colcon test --packages-select
 rp1_swerve_controller`. Builds a real controller instance with real `CommandInterface`/
 `StateInterface` objects (not a mock hardware component), drives the actual lifecycle
 (`init`/`configure`/`assign_interfaces`/`activate`), and delivers `cmd_vel`/`mode` via real
@@ -249,7 +261,10 @@ regardless of home state), the mode-switch-safety gate (a chassis reporting real
 drive/steering state defers a requested switch, adopting it only once state settles near zero;
 a controller that's never received state feedback is treated as already stopped), mode-switch
 ramping (a deferred switch's drive command strictly decreases cycle-over-cycle while `~/cmd_vel`
-keeps holding its original nonzero value, settling at exactly zero and staying there), and
+keeps holding its original nonzero value, settling at exactly zero and staying there), the
+`cmd_vel` staleness watchdog (a stale command zeroes every drive velocity while steering holds
+the last angle; a fresh one within the timeout keeps driving; a non-positive `cmd_vel_timeout`
+fails `on_init`), and
 `steering_home_sensors_available`/`steering_brake_available:false` (mirroring Gazebo: no
 seek_home/home_0deg/home_90deg/brake interfaces assigned at all, not just unconfirmed) -- the
 controller still activates and drives `FULL_SWERVE` normally, and `LOCKED_0` stays gated at zero

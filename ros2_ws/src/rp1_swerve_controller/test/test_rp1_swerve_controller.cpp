@@ -595,6 +595,74 @@ TEST_F(RP1SwerveControllerTest, ModeSwitchTakesEffectImmediatelyWhenAlreadyStopp
   }
 }
 
+TEST_F(RP1SwerveControllerTest, StaleCmdVelZerosDriveButHoldsSteeringAngle)
+{
+  auto controller = bring_up();
+  ASSERT_NE(controller, nullptr);
+
+  // Pure crab: all four corners at +90 degrees, wheels turning. publish_cmd_vel() leaves
+  // header.stamp zero, so the subscription callback stamps it at reception -- `time` here is
+  // taken right after, making the command fresh for the first update().
+  publish_cmd_vel(*controller, 0.0, 0.5, 0.0);
+  auto time = controller->get_node()->now();
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(controller->update(time, period), controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 2.321262766945218, 1e-9) << "corner " << i;
+  }
+
+  // Publisher goes silent past the (default 0.5 s) timeout: drive must zero, steering must
+  // HOLD the crab angle rather than snap back to 0 -- a wheel re-steering to straight while
+  // the chassis rolls out sideways would scrub, which is the failure mode this ordering
+  // guards. 2 s leaves generous slack over the callback-to-now() stamping gap.
+  ASSERT_EQ(
+    controller->update(time + rclcpp::Duration::from_seconds(2.0), period),
+    controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 0.0, 1e-9) << "corner " << i;
+    EXPECT_NEAR(steering_command(i), kPi / 2.0, 1e-9) << "corner " << i;
+  }
+
+  // A fresh command revives driving -- the watchdog gates on message age, not on any latched
+  // "timed out" state.
+  publish_cmd_vel(*controller, 0.0, 0.5, 0.0);
+  ASSERT_EQ(
+    controller->update(controller->get_node()->now(), period),
+    controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 2.321262766945218, 1e-9) << "corner " << i;
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, CmdVelWithinTimeoutKeepsDriving)
+{
+  // Generous timeout so the deliberately-aged update() below is unambiguously fresh no matter
+  // how slowly the publish helper's spin loop ran.
+  auto controller = bring_up({rclcpp::Parameter("cmd_vel_timeout", 10.0)});
+  ASSERT_NE(controller, nullptr);
+
+  publish_cmd_vel(*controller, 1.0, 0.0, 0.0);
+  auto time = controller->get_node()->now();
+  rclcpp::Duration period(std::chrono::milliseconds(20));
+  ASSERT_EQ(
+    controller->update(time + rclcpp::Duration::from_seconds(5.0), period),
+    controller_interface::return_type::OK);
+  for (std::size_t i = 0; i < 4; ++i)
+  {
+    EXPECT_NEAR(drive_command(i), 4.642525533890436, 1e-9) << "corner " << i;
+  }
+}
+
+TEST_F(RP1SwerveControllerTest, NonPositiveCmdVelTimeoutFailsInit)
+{
+  // Zero would mark every command stale on arrival -- a config error, not a "disable" switch.
+  auto controller = bring_up({rclcpp::Parameter("cmd_vel_timeout", 0.0)});
+  EXPECT_EQ(controller, nullptr);
+}
+
 TEST_F(RP1SwerveControllerTest, Locked90BlocksDriveUntilConfirmedAtNinetyDegrees)
 {
   auto controller = bring_up();

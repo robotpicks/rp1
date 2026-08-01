@@ -43,6 +43,10 @@ rp1_swerve_controller:
     # Rolling radius for converting drive-joint angular velocity state into linear speed for
     # odometry -- matches rp1_drive.urdf's wheel collision cylinder radius.
     wheel_radius: 0.2154
+    # Staleness watchdog on ~/cmd_vel, seconds -- same role (and value) as diff_drive_controller's
+    # cmd_vel_timeout in rp1_controllers.yaml: a publisher going quiet zeroes the drive wheels
+    # (steering holds its angle) instead of latching the last twist forever.
+    cmd_vel_timeout: 0.5
     odom_frame_id: odom
     base_frame_id: base_link
     enable_odom_tf: true

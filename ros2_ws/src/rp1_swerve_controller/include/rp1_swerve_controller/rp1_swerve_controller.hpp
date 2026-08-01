@@ -143,6 +143,17 @@ protected:
   rclcpp::Subscription<TwistStamped>::SharedPtr cmd_vel_subscriber_;
   realtime_tools::RealtimeThreadSafeBox<std::shared_ptr<TwistStamped>> input_cmd_vel_{nullptr};
 
+  // Staleness watchdog on ~/cmd_vel, seconds -- diff_drive_controller's cmd_vel_timeout, which
+  // the MVP skid-steer path already relies on, had no counterpart here: update() latched the
+  // last twist forever, so a dead publisher (teleop crash, RC dropout) left the robot driving
+  // at its last commanded speed indefinitely (observed for real under Gazebo). A command whose
+  // header.stamp is older than this is treated in update() as no command at all: drive
+  // velocities go to zero while steering positions keep holding last_steering_angle_ (see
+  // compute_corner_commands()'s zero-twist behavior) -- coasting out straight beats snapping
+  // the wheels back to 0 degrees mid-roll. The subscription callback stamps unstamped messages
+  // (header.stamp zero) at reception so they age correctly too. Validated > 0 in on_init().
+  double cmd_vel_timeout_ = 0.5;
+
   // Mode select, ~/mode (std_msgs/UInt8, SwerveMode's underlying value). A trivially-copyable
   // POD, so a plain atomic is enough -- no need for the RealtimeThreadSafeBox machinery
   // input_cmd_vel_ uses for a non-trivial shared_ptr payload. Unrecognized values fall back to

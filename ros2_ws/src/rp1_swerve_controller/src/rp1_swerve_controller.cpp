@@ -92,6 +92,16 @@ controller_interface::CallbackReturn RP1SwerveController::on_init()
     return controller_interface::CallbackReturn::ERROR;
   }
 
+  cmd_vel_timeout_ = node->declare_parameter<double>("cmd_vel_timeout", cmd_vel_timeout_);
+  if (cmd_vel_timeout_ <= 0.0)
+  {
+    RCLCPP_ERROR(
+      node->get_logger(),
+      "cmd_vel_timeout (%f) must be positive -- zero would mark every command stale on arrival",
+      cmd_vel_timeout_);
+    return controller_interface::CallbackReturn::ERROR;
+  }
+
   // CornerIndex order: front_left, front_right, rear_left, rear_right. X forward, Y left
   // (REP-103) -- matches rp1-specs/mechanical_spec.md's steering-axis table.
   corner_position_[FRONT_LEFT] = {half_wheelbase_, half_track_};
@@ -202,7 +212,15 @@ controller_interface::CallbackReturn RP1SwerveController::on_configure(
   cmd_vel_subscriber_ = get_node()->create_subscription<TwistStamped>(
     "~/cmd_vel", rclcpp::SystemDefaultsQoS(),
     [this](const std::shared_ptr<TwistStamped> msg)
-    { input_cmd_vel_.set([&msg](std::shared_ptr<TwistStamped> & value) { value = msg; }); });
+    {
+      // An unstamped publisher (header.stamp zero) must still age out under the staleness
+      // watchdog, so stamp it at reception -- same convention diff_drive_controller uses.
+      if (msg->header.stamp.sec == 0 && msg->header.stamp.nanosec == 0u)
+      {
+        msg->header.stamp = get_node()->get_clock()->now();
+      }
+      input_cmd_vel_.set([&msg](std::shared_ptr<TwistStamped> & value) { value = msg; });
+    });
 
   mode_.store(static_cast<uint8_t>(SwerveMode::FULL_SWERVE));
   active_mode_ = SwerveMode::FULL_SWERVE;
@@ -617,6 +635,20 @@ controller_interface::return_type RP1SwerveController::update(
   std::shared_ptr<TwistStamped> cmd_vel;
   input_cmd_vel_.get(
     [&cmd_vel](const std::shared_ptr<TwistStamped> & value) { cmd_vel = value; });
+
+  // Staleness watchdog (see cmd_vel_timeout_'s header comment): a command older than the
+  // timeout is treated exactly like no command ever arriving -- the effective twist below
+  // becomes zero, which zeroes every drive velocity while compute_corner_commands() keeps the
+  // steering positions holding last_steering_angle_. Deliberately ahead of the mode-switch
+  // block: a pending switch's ramp then seeds from zero rather than from a stale twist.
+  if (cmd_vel)
+  {
+    const rclcpp::Duration age = time - rclcpp::Time(cmd_vel->header.stamp);
+    if (age > rclcpp::Duration::from_seconds(cmd_vel_timeout_))
+    {
+      cmd_vel = nullptr;
+    }
+  }
 
   // Body twist from real state feedback (not the command), computed once and reused both to
   // gate mode transitions below and to publish ~/odom further down.
