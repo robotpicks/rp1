@@ -10,6 +10,15 @@ Linux `can0` interface -- no custom driver needed. Bring the interface up before
 sudo ip link set can0 type can bitrate 1000000   # match the VESCs' configured UAVCAN bitrate
 sudo ip link set can0 up
 ```
+**Or make it permanent**: `tools/80-can0-up.rules` (udev rule, confirmed on the bench
+2026-08-05) runs those same two commands automatically on every boot/replug. No automatic
+bus-off recovery, though -- this bench's gs_usb adapter firmware doesn't support
+`restart-ms` (confirmed 2026-08-05, `ip` refuses it: "Device doesn't support restart from Bus
+Off"); a bus-off needs a manual down/up (or replug) to clear. Install once:
+```bash
+sudo cp tools/80-can0-up.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
 Terminate the bus with 120 ohm resistors at each end per standard CAN wiring practice.
 
 ## VESC configuration (one-off, not part of the runtime path)

@@ -1,0 +1,20 @@
+# Auto-configures and brings up the CAN adapter (gs_usb/CANable-style, VID:PID 1d50:606f --
+# see docs/wiring.md) as can0 whenever it appears: on boot, and on hot-plug. Without this it's
+# left administratively DOWN after every boot/replug (SocketCAN's default), which is what
+# docs/wiring.md's manual "bring the interface up before launching" step exists to fix by hand
+# -- this rule makes that step unnecessary.
+#
+# Bitrate (1000000) matches the VESCs' configured UAVCAN bitrate per docs/wiring.md -- keep
+# these in sync if that's ever changed. No `restart-ms` here: this bench's gs_usb adapter
+# rejects it ("Error: Device doesn't support restart from Bus Off", confirmed 2026-08-05) --
+# not every gs_usb firmware advertises CAN_CTRLMODE_BERR_REPORTING. If a different adapter is
+# ever swapped in, check `ip -details link show can0` for a `berr-reporting` capability before
+# adding restart-ms back; a bus-off on this adapter needs a manual
+# `ip link set can0 down && ip link set can0 up` (or a replug) to clear.
+#
+# Install (needs root -- not something this repo can do for you):
+#   sudo cp tools/80-can0-up.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+SUBSYSTEM=="net", ACTION=="add", KERNEL=="can0", \
+  RUN+="/usr/sbin/ip link set $env{INTERFACE} type can bitrate 1000000", \
+  RUN+="/usr/sbin/ip link set $env{INTERFACE} up"
