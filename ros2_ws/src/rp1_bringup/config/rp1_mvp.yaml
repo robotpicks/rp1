@@ -18,5 +18,11 @@ teleop_node:
 
 elrs_driver:               # the generic CRSF driver from the elrs_ros submodule
   ros__parameters:
-    serial_port: /dev/ttyUSB0  # ELRS receiver's UART (USB adapter, or /dev/ttyAMA0 on a Pi header)
+    # Confirmed 2026-08-05: ELRS is its own separate FTDI USB-to-UART device -- not routed
+    # through the Waveshare converter that carries IMU/GPS/compass (see rp1_gps.yaml,
+    # rp1_imu.yaml, rp1_compass.yaml). Uses the ftdi_sio kernel driver, so it stays on its own
+    # /dev/ttyUSB0-style node -- confirmed on the bench that the Waveshare converter's UART1
+    # (GPS) instead enumerates as /dev/ttyACM0 (CDC-ACM), so the two don't collide. Not
+    # connected yet as of 2026-08-05.
+    serial_port: /dev/ttyUSB0  # ELRS receiver's UART, via its own separate FTDI USB device
     require_serial: true       # set false to dry-run without the receiver (telemetry logged, no RC)

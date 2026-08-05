@@ -1,4 +1,7 @@
-"""Starts the u-blox M10 GNSS driver (ublox_gps, stock package) with rp1's config.
+"""Starts the u-blox NEO-F10N GNSS driver (ublox_gps, stock package) with rp1's config.
+
+Hardware is the Dalang DL25F10NQ module (NEO-F10N + an onboard IST8310 compass on the same
+PCB) -- the compass is a separate I2C device, driven by rp1_compass, not this package.
 
 Unlike rp1_imu/rp1_elrs, ublox_gps has no built-in dry-run/require_serial escape hatch -- it
 opens the configured device on startup and will fail if that port doesn't exist or isn't a real
@@ -29,9 +32,11 @@ def generate_launch_description():
         # rp1_mvp.launch.py uses for can_iface, so this stays in sync if the yaml default
         # ever changes without needing a second edit here.
         DeclareLaunchArgument(
-            'device', default_value='/dev/ttyUSB0',
+            'device', default_value='/dev/ttyACM0',
             description="Serial device for the GNSS receiver; overrides rp1_gps.yaml's "
-                        'device: (e.g. a socat test pty for a hardware-free smoke test)'),
+                        'device: (e.g. a socat test pty for a hardware-free smoke test). '
+                        'Confirmed on the bench 2026-08-05: the Waveshare converter\'s UART1 '
+                        'enumerates as /dev/ttyACM0 (CDC-ACM), not a ttyUSB-style node.'),
 
         Node(
             package='ublox_gps',

@@ -1,12 +1,16 @@
 # rp1 config for the ICM20948 IMU driver.
 #
 # spi_bus/spi_device are PLACEHOLDERS -- confirm against the real /dev/spidev* enumeration once
-# hardware is wired up. The IMU reaches the PC through a Waveshare USB-to-UART/I2C/SPI/JTAG
-# converter, not a native on-board SPI controller; which /dev/spidevX.Y it shows up as depends
-# on which kernel driver binds that converter's USB VID/PID (e.g. ch341/ch347's spi-ch341-usb,
-# or an FTDI MPSSE driver) -- that module needs to actually be loaded and the resulting device
-# node identified before these numbers mean anything. See rp1-specs/system_architecture.md's
-# hardware inventory for the rest of the second-wave sensor wiring.
+# hardware is wired up. The IMU reaches the PC through the Waveshare USB-to-UART/I2C/SPI/JTAG
+# converter, not a native on-board SPI controller -- confirmed 2026-08-05 running in Mode 1
+# (UART1 + I2C + SPI, UART0 disabled), and confirmed on the bench via `lsusb`: "Bus 001 Device
+# 005: ID 1a86:55db QinHeng Electronics USB To UART+SPI+I2C device" (a WCH/QinHeng CH34x/CH347
+# family chipset). The ELRS receiver does NOT share this converter (it's a separate FTDI USB
+# device -- see rp1_bringup/config/rp1_mvp.yaml). Which /dev/spidevX.Y the IMU shows up as still
+# depends on which kernel driver binds the converter (e.g. `spi-ch341-usb` / `ch347`) and in what
+# order devices enumerate -- not yet confirmed against real hardware. See
+# rp1-specs/electrical_spec.md's "Second-wave sensor physical interfaces" for the rest of the
+# wiring.
 
 icm20948_driver:
   ros__parameters:

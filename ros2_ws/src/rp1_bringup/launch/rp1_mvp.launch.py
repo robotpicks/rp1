@@ -33,15 +33,21 @@ docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks i
   teleop:=false alongside it. Its own window, not a panel inside rviz. Natively supports
   TwistStamped (default_stamped param, set true below), so it needs no translator either.
 
-  imu:=true / gps:=true start the second-wave sensor drivers (rp1_imu's ICM20948-over-SPI node,
-  rp1_gps's ublox_gps-based M10-over-UART node) -- both default off since neither piece of
-  hardware is wired up yet as of 2026-07-30. Neither node's dry-run story is as solid as the
-  drive path's: the IMU driver is UNVERIFIED against real hardware (see
-  icm20948_driver_node.py's module docstring), and ublox_gps has no require_serial-style escape
-  hatch at all, so gps:=true against a nonexistent device crashes the node rather than dry-running
-  it. See rp1_imu/config/rp1_imu.yaml and rp1_gps/config/rp1_gps.yaml for the SPI bus/device and
-  serial port/baud placeholders that need confirming against the real Waveshare
-  USB-to-UART/I2C/SPI/JTAG converter wiring once it exists.
+  imu:=true / gps:=true / compass:=true start the second-wave sensor drivers (rp1_imu's
+  ICM20948-over-SPI node, rp1_gps's ublox_gps-based NEO-F10N-over-UART1 node, rp1_compass's
+  IST8310-over-I2C node) -- all three default off since none of this hardware is wired up yet as
+  of 2026-08-05. All three share one physical Waveshare USB-to-UART/I2C/SPI/JTAG converter,
+  confirmed running in Mode 1 (UART1 + I2C + SPI, UART0 disabled) and identified on the bench via
+  `lsusb` as a WCH/QinHeng CH34x/CH347-family chipset (1a86:55db). ELRS does NOT share this
+  converter -- confirmed 2026-08-05 to be its own separate FTDI USB device instead (see
+  rp1_mvp.yaml's elrs_driver.serial_port comment), correcting the earlier assumption that GPS,
+  IMU, and ELRS all shared one converter. None of the three sensor nodes' dry-run stories are as
+  solid as the drive path's: the IMU/compass drivers are UNVERIFIED against real hardware (see
+  icm20948_driver_node.py's and ist8310_driver_node.py's module docstrings), and ublox_gps has no
+  require_serial-style escape hatch at all, so gps:=true against a nonexistent device crashes the
+  node rather than dry-running it. See rp1_imu/config/rp1_imu.yaml, rp1_gps/config/rp1_gps.yaml,
+  and rp1_compass/config/rp1_compass.yaml for the SPI/I2C bus/device and serial port/baud
+  placeholders that still need confirming against the real Waveshare wiring.
 
 controller_manager in this ROS 2 release takes the robot description from the /robot_description
 TOPIC, not from a parameter -- it logs "Waiting for data on 'robot_description' topic" and
@@ -176,8 +182,13 @@ def generate_launch_description():
                         'hardware -- see module docstring.'),
         DeclareLaunchArgument(
             'gps', default_value='false',
-            description='Start the u-blox M10 GPS driver (rp1_gps). No dry-run mode -- crashes '
-                        'if the configured device does not exist.'),
+            description='Start the u-blox NEO-F10N GPS driver (rp1_gps). No dry-run mode -- '
+                        'crashes if the configured device does not exist.'),
+        DeclareLaunchArgument(
+            'compass', default_value='false',
+            description="Start the IST8310 compass driver (rp1_compass) -- the GPS module's "
+                        'onboard magnetometer, separate from the GPS fix itself. Unverified '
+                        'against real hardware -- see module docstring.'),
 
         OpaqueFunction(function=_robot_description),
 
@@ -252,6 +263,16 @@ def generate_launch_description():
             parameters=[
                 os.path.join(get_package_share_directory('rp1_gps'), 'config', 'rp1_gps.yaml')],
             condition=IfCondition(LaunchConfiguration('gps')),
+        ),
+        Node(
+            package='rp1_compass',
+            executable='ist8310_driver',
+            name='ist8310_driver',
+            output='screen',
+            parameters=[
+                os.path.join(
+                    get_package_share_directory('rp1_compass'), 'config', 'rp1_compass.yaml')],
+            condition=IfCondition(LaunchConfiguration('compass')),
         ),
 
         # Controllers are spawned strictly sequentially (TimerAction delay, then chained via

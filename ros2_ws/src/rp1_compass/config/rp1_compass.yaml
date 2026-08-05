@@ -1,0 +1,20 @@
+# rp1 config for the IST8310 magnetometer driver -- the compass bundled on the GPS module's own
+# breakout board (Dalang DL25F10NQ, NEO-F10N + IST8310), not the ICM20948's internal AK09916 mag
+# (that one is rp1_imu's imu/mag topic).
+#
+# i2c_bus is a PLACEHOLDER -- confirm against the real /dev/i2c-N enumeration once hardware is
+# wired up. Like the IMU (SPI) and GPS (UART1), this chip reaches the PC through the Waveshare
+# converter running in Mode 1 (UART1 + I2C + SPI, UART0 disabled) -- confirmed on the bench via
+# `lsusb`: "Bus 001 Device 005: ID 1a86:55db QinHeng Electronics USB To UART+SPI+I2C device"
+# (a WCH/QinHeng CH34x/CH347-family chipset). Which /dev/i2c-N this converter's I2C port shows up
+# as depends on which kernel driver binds it and in what order devices enumerate -- not yet
+# confirmed against real hardware. See rp1-specs/electrical_spec.md's "Second-wave sensor
+# physical interfaces" for the rest of the wiring.
+
+ist8310_driver:
+  ros__parameters:
+    require_i2c: true
+    i2c_bus: 1
+    i2c_address: 0x0C
+    frame_id: compass_link
+    rate_hz: 20.0

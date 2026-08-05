@@ -3,7 +3,7 @@
 <package format="3">
   <name>rp1_gps</name>
   <version>0.0.1</version>
-  <description>rp1's config/launch for a u-blox M10 GNSS receiver over UART, using the stock ublox_gps driver -- no custom driver code, this package is glue only.</description>
+  <description>rp1's config/launch for a u-blox NEO-F10N GNSS receiver (Dalang DL25F10NQ module) over UART, using the stock ublox_gps driver -- no custom driver code, this package is glue only. The module's onboard IST8310 compass is a separate I2C device handled by rp1_compass, not this package.</description>
   <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
   <license>Apache-2.0</license>
 

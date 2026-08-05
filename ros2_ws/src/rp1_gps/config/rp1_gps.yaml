@@ -1,24 +1,34 @@
-# rp1 config for a u-blox M10-based GNSS receiver over UART (ublox_gps driver).
+# rp1 config for a u-blox NEO-F10N-based GNSS receiver over UART (ublox_gps driver). Hardware is
+# the Dalang DL25F10NQ module -- confirmed 2026-08-05, corrects this file's earlier "u-blox M10"
+# assumption (wrong part number, not a real earlier alternative). The module also carries an
+# onboard IST8310 compass on the same PCB -- a separate I2C device, config/driver in rp1_compass,
+# not this file.
 #
-# device/uart1.baudrate are PLACEHOLDERS -- confirm against the real hardware once wired up.
-# Like the IMU, the GPS reaches the PC through a Waveshare USB-to-UART/I2C/SPI/JTAG converter
-# rather than a native serial port, so the actual /dev/ttyUSBx or /dev/ttyACMx path depends on
-# which kernel driver binds that converter and in what order devices enumerate -- don't assume
-# these numbers without checking. u-blox M10 modules commonly default UART1 to 38400 baud, but
-# that varies by module/firmware and should be confirmed (or set explicitly via u-center) rather
-# than assumed. See rp1-specs/system_architecture.md's hardware inventory.
+# device/uart1.baudrate: baudrate is still a PLACEHOLDER -- confirm against the real hardware
+# once wired up. Like the IMU and compass, the GPS reaches the PC through the Waveshare
+# USB-to-UART/I2C/SPI/JTAG converter -- confirmed 2026-08-05 running in Mode 1 (UART1 + I2C +
+# SPI, UART0 disabled), and confirmed on the bench via `lsusb`: "Bus 001 Device 005: ID 1a86:55db
+# QinHeng Electronics USB To UART+SPI+I2C device" (a WCH/QinHeng CH34x/CH347-family chipset). GPS
+# is assigned to the converter's UART1. **Confirmed on the bench 2026-08-05: this converter's
+# UART1 enumerates as /dev/ttyACM0** (CDC-ACM, not a ttyUSB-style node) -- distinct from the
+# ELRS receiver's separate FTDI USB device (rp1_bringup/config/rp1_mvp.yaml's serial_port),
+# which uses the ftdi_sio driver and so stays on its own /dev/ttyUSB0-style path; the two don't
+# collide. u-blox F10-platform modules commonly default UART1 to 38400 baud (matches the Dalang
+# DL25F10NQ's own listed default), but that varies by module/firmware and should be confirmed
+# (or set explicitly via u-center) rather than assumed. See rp1-specs/electrical_spec.md's
+# "Second-wave sensor physical interfaces" for the rest of the wiring.
 #
-# Unlike the IMU, this isn't a from-scratch driver -- ublox_gps (stock ROS2 package) already
-# supports u-blox UBX-protocol receivers over serial; this file is only the M10-specific config,
-# based on ublox_gps's own neo_m8u_rover.yaml example, trimmed to what a plain M10 (no dead
-# reckoning, no RTK) actually supports -- don't copy the M8U example's esf/dr_limit/dgnss_mode
-# settings back in, those are for a different chip.
+# Unlike the IMU/compass, this isn't a from-scratch driver -- ublox_gps (stock ROS2 package)
+# already supports u-blox UBX-protocol receivers over serial; this file is only the
+# NEO-F10N-specific config, based on ublox_gps's own neo_m8u_rover.yaml example, trimmed to what
+# a plain F10N (no dead reckoning, no RTK) actually supports -- don't copy the M8U example's
+# esf/dr_limit/dgnss_mode settings back in, those are for a different chip.
 
 ublox_gps_node:
   ros__parameters:
-    device: /dev/ttyUSB0
+    device: /dev/ttyACM0  # confirmed on the bench 2026-08-05 -- Waveshare converter's UART1
     frame_id: gps_link
-    rate: 5.0            # Hz -- M10 supports up to 10-25Hz depending on constellation config
+    rate: 5.0            # Hz -- F10N supports up to 10-25Hz depending on constellation config
     nav_rate: 1           # measurement cycles per solution
     dynamic_model: automotive
     fix_mode: 3d

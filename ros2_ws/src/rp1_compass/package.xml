@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rp1_compass</name>
+  <version>0.0.1</version>
+  <description>IST8310 magnetometer driver over I2C -- the compass bundled on the GPS module's own breakout board (Dalang DL25F10NQ, NEO-F10N + IST8310), physically distinct from the ICM20948's internal AK09916 magnetometer handled by rp1_imu. Unverified against real hardware -- see ist8310_driver_node.py's module docstring.</description>
+  <maintainer email="uzi.mor@gmail.com">uzi.mor</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
