@@ -57,10 +57,12 @@ def _label_and_task(esc_index: int) -> tuple:
         return _WHEEL_NAMES[esc_index], "drive"
     steering_wheel = _WHEEL_NAMES.get(esc_index - 4)
     if steering_wheel is not None:
-        # esc.Status is the drive message; seeing it at a steering actuator_id means this VESC's
-        # can_esc_index is set to the steering convention's number but it's still emitting the
-        # drive status message -- a VESC Tool config mismatch worth flagging, not a normal case.
-        return f"{steering_wheel} steering", "MISMATCH: esc.Status at a steering actuator_id"
+        # NOT a config error: firmware's periodic status loop unconditionally calls both
+        # sendEscStatus() and sendActuatorStatus() every period for every VESC (see
+        # bldc/libcanard/canard_driver.c), so esc.Status at a steering actuator_id is expected --
+        # role (drive vs steering) is decided by which *command* message the PC sends, not which
+        # status message the VESC emits (both are always emitted).
+        return f"{steering_wheel} steering?", "actuator_id -- also broadcasts actuator.Status"
     return "unassigned", "unknown -- not in docs/can_id_map.md"
 
 
@@ -134,6 +136,11 @@ def cmd_listen(dronecan, node, seconds: float) -> bool:
     print(row_fmt.format(*("-" * w for w in widths)))
     for row in rows:
         print(row_fmt.format(*row))
+    if any(idx not in _WHEEL_NAMES for idx in seen):
+        print("Note: esc_index 4-7 broadcasting esc.Status is expected, not a config error --"
+              " firmware sends both esc.Status and actuator.Status for every VESC every period"
+              " regardless of role (bldc/libcanard/canard_driver.c); role is decided by which"
+              " command message the PC sends, not which status message comes back.")
     return True
 
 
