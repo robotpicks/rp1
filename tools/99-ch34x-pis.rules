@@ -1,0 +1,10 @@
+# Grants group access to the WCH ch34x_pis device (SPI+I2C on the Waveshare converter, Mode 1
+# -- see rp1-specs/electrical_spec.md and check_bus_continuity.py). Without this, the node is
+# root:root 0600 and every check/driver run needs sudo. Matches the existing convention on this
+# box for USB serial converters (ttyACM0/ttyUSB0 are already root:dialout via distro udev
+# rules) rather than inventing a new group.
+#
+# Install (needs root -- not something this repo can do for you):
+#   sudo cp tools/99-ch34x-pis.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+KERNEL=="ch34x_pis*", MODE="0660", GROUP="dialout"
