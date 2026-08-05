@@ -47,9 +47,9 @@ def _force_native_socketcan_driver() -> None:
     dronecan.driver.PythonCAN = None
 
 
-# docs/can_id_map.md's wheel index table (drive esc_index 0-3) and steering convention
-# (actuator_id = drive esc_index + 4).
-_WHEEL_NAMES = {0: "Front-left", 1: "Front-right", 2: "Rear-left", 3: "Rear-right"}
+# docs/can_id_map.md's wheel index table (drive esc_index 1-4, 0 deliberately unused) and
+# steering convention (actuator_id = drive esc_index + 4, i.e. 5-8).
+_WHEEL_NAMES = {1: "Front-left", 2: "Front-right", 3: "Rear-left", 4: "Rear-right"}
 
 
 def _label_and_task(esc_index: int) -> tuple:
@@ -92,12 +92,17 @@ def _query_uuids(dronecan, node, node_ids, timeout: float = 2.0) -> dict:
 
 
 def cmd_listen(dronecan, node, seconds: float) -> bool:
+    # Keyed by (esc_index, node_id) rather than just esc_index -- if two physical VESCs share an
+    # esc_index, overwriting by esc_index alone would silently hide it (whichever's frame arrived
+    # last "wins" and the collision never surfaces). Keeping both keyed separately means a
+    # collision shows up as two rows sharing one esc_index instead of one row flip-flopping
+    # between two node_ids across runs.
     seen = {}
 
     def on_status(event):
         s = event.message
-        seen[s.esc_index] = (s.rpm, s.voltage, s.current, s.temperature,
-                              event.transfer.source_node_id)
+        node_id = event.transfer.source_node_id
+        seen[(s.esc_index, node_id)] = (s.rpm, s.voltage, s.current, s.temperature)
 
     node.add_handler(dronecan.uavcan.equipment.esc.Status, on_status)
     print(f"Listening for esc.Status on the bus for {seconds:.0f}s...")
@@ -115,16 +120,27 @@ def cmd_listen(dronecan, node, seconds: float) -> bool:
               "docs/can_id_map.md's VESC UAVCAN configuration section).")
         return False
 
-    node_ids = sorted({node_id for *_, node_id in seen.values()})
+    node_ids = sorted({node_id for _, node_id in seen})
     print(f"Querying GetNodeInfo for {len(node_ids)} distinct CAN/node ID(s) to read back each "
           "VESC's hardware UUID...")
     uuids = _query_uuids(dronecan, node, node_ids)
 
-    print(f"{len(seen)} distinct esc_index seen (label/task per docs/can_id_map.md):")
+    esc_indices = sorted({idx for idx, _ in seen})
+    collisions = {idx for idx in esc_indices
+                  if sum(1 for i, _ in seen if i == idx) > 1}
+    if collisions:
+        print(f"*** COLLISION: esc_index {sorted(collisions)} each have MORE THAN ONE physical "
+              "VESC broadcasting -- set can_esc_index to a unique value on each via VESC Tool. "
+              "***")
+
+    print(f"{len(seen)} distinct (esc_index, node_id) pairs seen (label/task per "
+          "docs/can_id_map.md):")
     rows = []
-    for idx in sorted(seen):
-        rpm, volt, cur, temp, node_id = seen[idx]
+    for idx, node_id in sorted(seen):
+        rpm, volt, cur, temp = seen[(idx, node_id)]
         label, task = _label_and_task(idx)
+        if idx in collisions:
+            task = "COLLISION -- " + task
         uuid = uuids.get(node_id) or "no GetNodeInfo response"
         rows.append((str(idx), label, task, str(node_id), uuid, str(rpm), f"{volt:.1f}V",
                      f"{cur:.1f}A", f"{temp:.1f}K"))
@@ -137,7 +153,7 @@ def cmd_listen(dronecan, node, seconds: float) -> bool:
     for row in rows:
         print(row_fmt.format(*row))
     if any(idx not in _WHEEL_NAMES for idx in seen):
-        print("Note: esc_index 4-7 broadcasting esc.Status is expected, not a config error --"
+        print("Note: esc_index 5-8 broadcasting esc.Status is expected, not a config error --"
               " firmware sends both esc.Status and actuator.Status for every VESC every period"
               " regardless of role (bldc/libcanard/canard_driver.c); role is decided by which"
               " command message the PC sends, not which status message comes back.")
@@ -187,7 +203,7 @@ def main() -> int:
 
     p_pulse = sub.add_parser("pulse", help="Send a real RawCommand duty-cycle pulse to ONE "
                               "esc_index. WHEELS MUST BE OFF THE GROUND.")
-    p_pulse.add_argument("esc_index", type=int, choices=(0, 1, 2, 3))
+    p_pulse.add_argument("esc_index", type=int, choices=(1, 2, 3, 4))
     p_pulse.add_argument("--duty", type=float, default=0.05,
                           help="Fraction of full duty cycle, -1.0..1.0. Default 0.05 (5%%) -- "
                           "start small and only increase once a wheel is confirmed spinning "

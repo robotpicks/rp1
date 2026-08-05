@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <robot name="rp1_steering">
-  <!-- Minimal skeleton -- just enough links/joints for ros2_control to load the two currently
-       bench-wired steering actuators (see docs/can_id_map.md's +4 steering-index convention:
-       front-right drive=1 -> steering=5, rear-left drive=2 -> steering=6). Not a real physical
+  <!-- Minimal skeleton -- just enough links/joints for ros2_control to load two of the steering
+       actuators (see docs/can_id_map.md's +4 steering-index convention:
+       front-right drive=2 -> steering=6, rear-left drive=3 -> steering=7). Not a real physical
        description of the robot; rp1 has no full URDF yet.
 
        Joint origins are from the CAD (tools/export_urdf_meshes.py in the rp1-mechanical
@@ -45,7 +45,7 @@
       <param name="node_id">44</param>
     </hardware>
     <joint name="steering_front_right">
-      <param name="actuator_id">5</param>
+      <param name="actuator_id">6</param>
       <command_interface name="position"/>
       <!-- Edge-triggered "seek home" command: write HOME_TARGET_0DEG (0.0) or HOME_TARGET_90DEG
            (1.0, see uavcan/equipment/actuator/Command.h in the vesc_dronecan_ros submodule's
@@ -58,7 +58,7 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="steering_rear_left">
-      <param name="actuator_id">6</param>
+      <param name="actuator_id">7</param>
       <command_interface name="position"/>
       <command_interface name="seek_home"/>
       <state_interface name="position"/>
@@ -70,12 +70,12 @@
          joint_state_broadcaster; needs publish_dynamic_joint_states: true and
          use_urdf_to_filter: false, same as rp1_drive.urdf's ESC telemetry gpio blocks. -->
     <gpio name="steering_sensors_front_right">
-      <param name="actuator_id">5</param>
+      <param name="actuator_id">6</param>
       <state_interface name="home_0deg"/>
       <state_interface name="home_90deg"/>
     </gpio>
     <gpio name="steering_sensors_rear_left">
-      <param name="actuator_id">6</param>
+      <param name="actuator_id">7</param>
       <state_interface name="home_0deg"/>
       <state_interface name="home_90deg"/>
     </gpio>

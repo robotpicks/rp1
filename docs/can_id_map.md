@@ -35,7 +35,8 @@ device address. The `dronecan` Python library enforces this too (`node_id` sette
 
 Messages used:
 - `uavcan.equipment.esc.RPMCommand` (PC -> VESCs): `rpm[esc_index]`, an 18-bit signed array.
-  Only indices 0-3 are used for the MVP. Broadcast, not addressed to a node ID -- every VESC on
+  Only indices 1-4 are used for the MVP (index 0 is deliberately left unused -- see the wheel
+  index convention below). Broadcast, not addressed to a node ID -- every VESC on
   the bus sees every RPMCommand and picks out its own `esc_index`. Firmware routes it to
   `mc_interface_set_pid_speed()`, a closed-loop speed PID, which is what lets ros2_control
   expose an honest **velocity** command interface.
@@ -65,10 +66,16 @@ ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` thro
 
 | Index | Wheel       | ros2_control joint  | DroneCAN esc_index (set on that VESC via VESC Tool) |
 |-------|-------------|---------------------|------------------------------------------------------|
-| 0     | Front-left  | `drive_front_left`  | 0 |
-| 1     | Front-right | `drive_front_right` | 1 |
-| 2     | Rear-left   | `drive_rear_left`   | 2 |
-| 3     | Rear-right  | `drive_rear_right`  | 3 |
+| 0     | Front-left  | `drive_front_left`  | 1 |
+| 1     | Front-right | `drive_front_right` | 2 |
+| 2     | Rear-left   | `drive_rear_left`   | 3 |
+| 3     | Rear-right  | `drive_rear_right`  | 4 |
+
+**`esc_index`/`actuator_id` 0 is deliberately unused** -- 1-8 covers all 8 VESCs (4 drive + 4
+steering) so no VESC is ever left at the field's power-on-default-looking value of 0, keeping
+every physically-installed unit's assignment an explicit, deliberate choice. (This is distinct
+from the node ID table's `0` rule above, which is a hard UAVCAN protocol reservation --
+`esc_index`/`actuator_id` has no such protocol restriction, this is purely rp1's own convention.)
 
 Each VESC's `esc_index` (set in VESC Tool, not its DroneCAN node ID) must match this table, and
 must match the `esc_index` parameter on the corresponding joint in
@@ -126,7 +133,8 @@ For each of the 4 VESCs: App Settings -> General -> CAN Mode = **VESC+UAVCAN**, 
   field accepts 0-253, but 0 is DroneCAN's reserved anonymous address (see the node ID table
   above). Use 1-127.
 - **`esc_index`** (App Settings -> General -> UAVCAN ESC index, the `can_esc_index` param,
-  range 0-255) -- the value from the wheel index table above.
+  range 0-255) -- the value from the wheel index table above. **Use 1-8, never 0** (see that
+  table's note).
 
 This is a bench/setup-time activity done over VESC Tool's own USB link -- the runtime control
 path never touches VESC Tool.
@@ -136,7 +144,7 @@ in firmware 7.00 as `raw_val = cmd.data[esc_index] / 8192.0` (int14 range -8192.
 -1.0..1.0 duty), see `libcanard/canard_driver.c` around the `RawCommand` handler. Re-confirm
 against `/home/user/dev/bldc` if the firmware version changes.
 
-## Steering actuator convention (bench, ahead of the MVP's "no steering joints" phasing)
+## Steering actuator convention (ahead of the MVP's "no steering joints" phasing)
 
 Firmware 7.00 (`add-actuator-arraycommand` branch, `/home/user/dev/bldc` commit `a242b9ae`)
 also implements `uavcan.equipment.actuator.ArrayCommand`/`Status` for position-controlled
@@ -145,17 +153,18 @@ steering, reusing the *same* `uavcan_esc_index` VESC Tool field as the message's
 at its `esc_index`) or a steering actuator (`actuator.ArrayCommand`/`Status` at that same
 numeric value used as `actuator_id`), depending only on how the PC side addresses it.
 
-**Convention: steering `actuator_id` = drive wheel index + 4.**
+**Convention: steering `actuator_id` = drive `esc_index` + 4.**
 
 | Wheel index | Drive `esc_index` | Steering `actuator_id` |
 |-------------|--------------------|--------------------------|
-| 0 (Front-left)  | 0 | 4 |
-| 1 (Front-right) | 1 | 5 |
-| 2 (Rear-left)   | 2 | 6 |
-| 3 (Rear-right)  | 3 | 7 |
+| 0 (Front-left)  | 1 | 5 |
+| 1 (Front-right) | 2 | 6 |
+| 2 (Rear-left)   | 3 | 7 |
+| 3 (Rear-right)  | 4 | 8 |
 
-Only wheels 1 and 2's steering (`actuator_id` 5 and 6) are wired up on the bench so far; 0 and
-3's steering (4 and 7) are unconfirmed.
+All 8 VESCs (4 drive + 4 steering) are now physically installed on the robot -- this is no
+longer a bench-only subset. Actual bus presence/configuration of each still needs verifying
+per-unit (e.g. via `tools/can_vesc_test.py listen`), separately from physical installation.
 
 - `Command.command_type` -- only `COMMAND_TYPE_POSITION` (1) is implemented in firmware; the
   other DSDL-defined types (UNITLESS/FORCE/SPEED/PWM) are not handled.
