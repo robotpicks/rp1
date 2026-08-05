@@ -23,10 +23,15 @@ is gone. The wire protocol did not change with that move -- only the process tha
 | Node                  | DroneCAN node ID |
 |-----------------------|------------------|
 | PC (`vesc_dronecan_driver`) | 42 (the `node_id` hardware param in `urdf/rp1_drive.urdf`) |
-| VESC front-left       | TBD -- set via VESC Tool's UAVCAN page, must be unique on the bus |
+| VESC front-left       | TBD -- set via VESC Tool's UAVCAN page, 1-127, must be unique on the bus |
 | VESC front-right      | TBD |
 | VESC rear-left        | TBD |
 | VESC rear-right       | TBD |
+
+**Never assign node ID `0`.** In UAVCAN/DroneCAN, `0` is reserved for "anonymous" -- the source
+address a node without an assigned ID uses (e.g. during dynamic node ID allocation), not a valid
+device address. The `dronecan` Python library enforces this too (`node_id` setter requires
+`1 <= value <= 127`, treats `0` as `is_anonymous`).
 
 Messages used:
 - `uavcan.equipment.esc.RPMCommand` (PC -> VESCs): `rpm[esc_index]`, an 18-bit signed array.
@@ -117,7 +122,9 @@ UAVCAN CAN modes -- use **VESC+UAVCAN**, not plain **UAVCAN**:
 For each of the 4 VESCs: App Settings -> General -> CAN Mode = **VESC+UAVCAN**, and set:
 - **CAN ID** (the normal `controller_id` field, App Settings -> General -> CAN ID, range
   0-253) -- this doubles as the DroneCAN node ID in `VESC+UAVCAN` mode; there is no separate
-  UAVCAN-only node ID field. Must be unique on the bus.
+  UAVCAN-only node ID field. Must be unique on the bus, and **must not be 0** -- VESC's own
+  field accepts 0-253, but 0 is DroneCAN's reserved anonymous address (see the node ID table
+  above). Use 1-127.
 - **`esc_index`** (App Settings -> General -> UAVCAN ESC index, the `can_esc_index` param,
   range 0-255) -- the value from the wheel index table above.
 

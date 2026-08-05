@@ -10,7 +10,14 @@ Two modes:
   listen   Passive: reports which esc_index values are broadcasting esc.Status, and their
            rpm/voltage/current/temperature. Sends nothing -- always safe, run this first to
            confirm each VESC is even present/configured (VESC+UAVCAN mode, see
-           docs/can_id_map.md) before trying to command anything.
+           docs/can_id_map.md) before trying to command anything. Also issues a
+           uavcan.protocol.GetNodeInfo request to each distinct DroneCAN node ID seen (the
+           esc.Status transfer's source_node_id, i.e. the VESC's CAN ID / VESC Tool's
+           controller_id -- a different number from esc_index, see docs/can_id_map.md) to read
+           back that VESC's hardware unique_id ("PROM ID" / UUID). Cross-reference that against
+           VESC Tool's own per-device UUID cache -- any device VESC Tool shows as not cached is
+           one this esc_index/CAN ID assignment hasn't been made permanent for yet, and the UUID
+           printed here is what lets you tell physical units apart on the bench before doing so.
   pulse    Sends a real esc.RawCommand duty-cycle pulse to ONE esc_index and nothing else, then
            always sends a zero command back on exit (normal, Ctrl-C, or error). WHEELS MUST BE
            OFF THE GROUND AND THE E-STOP WITHIN REACH -- this moves a real motor. Prompts for
@@ -40,12 +47,55 @@ def _force_native_socketcan_driver() -> None:
     dronecan.driver.PythonCAN = None
 
 
+# docs/can_id_map.md's wheel index table (drive esc_index 0-3) and steering convention
+# (actuator_id = drive esc_index + 4).
+_WHEEL_NAMES = {0: "Front-left", 1: "Front-right", 2: "Rear-left", 3: "Rear-right"}
+
+
+def _label_and_task(esc_index: int) -> tuple:
+    if esc_index in _WHEEL_NAMES:
+        return _WHEEL_NAMES[esc_index], "drive"
+    steering_wheel = _WHEEL_NAMES.get(esc_index - 4)
+    if steering_wheel is not None:
+        # esc.Status is the drive message; seeing it at a steering actuator_id means this VESC's
+        # can_esc_index is set to the steering convention's number but it's still emitting the
+        # drive status message -- a VESC Tool config mismatch worth flagging, not a normal case.
+        return f"{steering_wheel} steering", "MISMATCH: esc.Status at a steering actuator_id"
+    return "unassigned", "unknown -- not in docs/can_id_map.md"
+
+
+def _query_uuids(dronecan, node, node_ids, timeout: float = 2.0) -> dict:
+    """GetNodeInfo each of node_ids, returning {node_id: uuid_hex or None on timeout}."""
+    uuids = {node_id: None for node_id in node_ids}
+
+    def make_callback(node_id):
+        def callback(event):
+            if event is not None:  # None means the request timed out, leave uuids[node_id] as-is
+                raw = list(event.response.hardware_version.unique_id)
+                uuids[node_id] = "".join(f"{b:02X}" for b in raw)
+        return callback
+
+    for node_id in node_ids:
+        node.request(dronecan.uavcan.protocol.GetNodeInfo.Request(), node_id,
+                      make_callback(node_id), timeout=timeout)
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            node.spin(timeout=0)
+        except Exception as exc:  # noqa: BLE001 - a bad received frame must not kill this tool
+            print(f"...spin error, ignoring: {exc}")
+        time.sleep(0.01)
+    return uuids
+
+
 def cmd_listen(dronecan, node, seconds: float) -> bool:
     seen = {}
 
     def on_status(event):
         s = event.message
-        seen[s.esc_index] = (s.rpm, s.voltage, s.current, s.temperature)
+        seen[s.esc_index] = (s.rpm, s.voltage, s.current, s.temperature,
+                              event.transfer.source_node_id)
 
     node.add_handler(dronecan.uavcan.equipment.esc.Status, on_status)
     print(f"Listening for esc.Status on the bus for {seconds:.0f}s...")
@@ -62,12 +112,28 @@ def cmd_listen(dronecan, node, seconds: float) -> bool:
               "termination, and that each VESC is actually in VESC+UAVCAN mode (see "
               "docs/can_id_map.md's VESC UAVCAN configuration section).")
         return False
-    print(f"{len(seen)} distinct esc_index seen (cross-check against docs/can_id_map.md's "
-          "wheel index table):")
+
+    node_ids = sorted({node_id for *_, node_id in seen.values()})
+    print(f"Querying GetNodeInfo for {len(node_ids)} distinct CAN/node ID(s) to read back each "
+          "VESC's hardware UUID...")
+    uuids = _query_uuids(dronecan, node, node_ids)
+
+    print(f"{len(seen)} distinct esc_index seen (label/task per docs/can_id_map.md):")
+    rows = []
     for idx in sorted(seen):
-        rpm, volt, cur, temp = seen[idx]
-        print(f"  esc_index={idx}: rpm={rpm} voltage={volt:.1f}V current={cur:.1f}A "
-              f"temp={temp:.1f}K")
+        rpm, volt, cur, temp, node_id = seen[idx]
+        label, task = _label_and_task(idx)
+        uuid = uuids.get(node_id) or "no GetNodeInfo response"
+        rows.append((str(idx), label, task, str(node_id), uuid, str(rpm), f"{volt:.1f}V",
+                     f"{cur:.1f}A", f"{temp:.1f}K"))
+    headers = ("esc_index", "label", "task", "node_id", "uuid", "rpm", "voltage", "current",
+               "temp")
+    widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+    row_fmt = "  " + "  ".join(f"{{:<{w}}}" for w in widths)
+    print(row_fmt.format(*headers))
+    print(row_fmt.format(*("-" * w for w in widths)))
+    for row in rows:
+        print(row_fmt.format(*row))
     return True
 
 
