@@ -48,6 +48,15 @@ controller. If Bluetooth must be used, try `options bluetooth disable_ertm=1` in
 `/etc/modprobe.d/` first (the most commonly effective fix for this specific symptom) and check
 USB autosuspend isn't powering down the BT adapter (`/sys/bus/usb/devices/*/power/control`).
 
+**Correction, confirmed on the bench 2026-08-05**: this box has the third-party `xpadneo`
+driver installed, not stock `hid_microsoft` -- paired/trusted/connected via `bluetoothctl`
+(`pair`/`trust`/`connect`), it came up as `/dev/input/js0` bound to `hid_xpadneo`
+(`lsmod`/`/proc/bus/input/devices`), not `hid_microsoft` as assumed above. `xpadneo` is a
+known-more-stable BLE HID driver for Xbox pads specifically written to avoid this flapping
+issue, so it may not actually apply on this machine -- not independently re-tested for
+flapping under long use, but the driver mismatch alone is worth knowing before chasing the
+`hid_microsoft` fixes above on this specific box.
+
 Verify it's seen as a joystick device and check axis/button numbering before trusting the
 defaults in `rp1_teleop/config/joy_xbox_series_x.yaml`:
 
