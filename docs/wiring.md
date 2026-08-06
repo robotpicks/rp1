@@ -19,6 +19,23 @@ Off"); a bus-off needs a manual down/up (or replug) to clear. Install once:
 sudo cp tools/80-can0-up.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
+**Adapter firmware**: confirmed on the bench 2026-08-06 for a MKS CANable V1.0 PRO. If it
+enumerates as `1d50:606f` with USB strings `bytewerk` / "candleLight USB to CAN adapter" rather
+than `canable.io` / "canable gs_usb", it's running an older candleLight_fw build. Reflash via
+USB-DFU (needs `dfu-util`; firmware from
+[candle-usb/candleLight_fw releases](https://github.com/candle-usb/candleLight_fw/releases) --
+extract `canable_fw.bin` from the `candleLight.vX.X.7z` asset, not `candleLight_fw.bin` or
+`cantact_fw.bin`, which target different boards):
+```bash
+# Unplug, bridge the J5 (BOOT) jumper, plug back in -- lsusb should now show
+# 0483:df11 STMicroelectronics STM Device in DFU Mode instead of 1d50:606f.
+sudo dfu-util -d 0483:df11 -c 1 -i 0 -a 0 -s 0x08000000:leave -D canable_fw.bin
+# Then remove the J5 jumper and replug -- back to 1d50:606f in normal (non-DFU) mode.
+```
+J2 (4-pin: 3.3V/SWCLK/GND/SWDIO) is an alternative SWD flashing/debug path if a probe is
+available, bypassing USB-DFU entirely. J4 (unpopulated by default) bridges a 120 ohm
+termination resistor across CAN_H/CAN_L -- separate from the bus-level termination below.
+
 Terminate the bus with 120 ohm resistors at each end per standard CAN wiring practice.
 
 ## VESC configuration (one-off, not part of the runtime path)
