@@ -28,17 +28,44 @@ networkd/NetworkManager-based CAN config (some benches do -- check `networkctl s
 same bitrate/up state isn't a conflict worth resolving, just don't rely on one machine's networkd
 setup existing on another.
 
-**Adapter firmware**: confirmed on the bench 2026-08-06 for a MKS CANable V1.0 PRO. If it
-enumerates as `1d50:606f` with USB strings `bytewerk` / "candleLight USB to CAN adapter" rather
-than `canable.io` / "canable gs_usb", it's running an older candleLight_fw build. Reflash via
-USB-DFU (needs `dfu-util`; firmware from
-[candle-usb/candleLight_fw releases](https://github.com/candle-usb/candleLight_fw/releases) --
-extract `canable_fw.bin` from the `candleLight.vX.X.7z` asset, not `candleLight_fw.bin` or
-`cantact_fw.bin`, which target different boards):
+**Adapter firmware**: confirmed on the bench 2026-08-06 for a MKS CANable V1.0 PRO
+(`STM32F072C8Tx` per its schematic). If it enumerates as `1d50:606f` with USB strings `bytewerk`
+/ "candleLight USB to CAN adapter" rather than `makerbase` / "CANable-MKS gs_usb", it's running
+an old/generic candleLight_fw build -- reflash it with the board-specific one below.
+
+Use the **`CANable_MKS` target from candleLight_fw v2.1**, not the `canable` target from the
+v2.0 release archive: `canable` is an F042 target (the original CANable/CANtact design, a
+different chip) that happens to run on this board's F072 but isn't actually correct for it;
+`CANable_MKS` (F072-specific, matching this board) only exists as of v2.1, which has no
+GitHub Release/prebuilt binary -- it must be built from source:
+```bash
+git clone --recurse-submodules https://github.com/candle-usb/candleLight_fw.git
+cd candleLight_fw && git checkout v2.1
+mkdir build && cd build
+# TOOLCHAIN_BIN_DIR: any arm-none-eabi-gcc works, e.g. bldc/tools/gcc-arm-none-eabi-7-2018-q2-update/bin
+# (already vendored in this repo tree) or the apt gcc-arm-none-eabi package -- see toolchain note below.
+cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/gcc-arm-none-eabi-8-2019-q3-update.cmake \
+      -DCMAKE_BUILD_TYPE=Release -DTOOLCHAIN_BIN_DIR=<arm-none-eabi-gcc bin dir> ..
+make CANable_MKS_fw   # -> build/CANable_MKS_fw.bin
+```
+**Toolchain note (confirmed on the bench 2026-08-06)**: Ubuntu's `gcc-arm-none-eabi` apt
+package fails with `cannot read spec file 'nano.specs'` -- `nano.specs` is installed by its
+`libnewlib-arm-none-eabi` dependency, but under `/usr/lib/arm-none-eabi/newlib/`, which isn't in
+gcc's own spec search path (`arm-none-eabi-gcc -print-search-dirs` doesn't list it). Fix once,
+system-wide, with a symlink into the directory gcc actually searches (adjust the `14.2.1` path
+component to match `arm-none-eabi-gcc -dumpversion` if it differs):
+```bash
+sudo ln -s /usr/lib/arm-none-eabi/newlib/nano.specs /usr/lib/gcc/arm-none-eabi/14.2.1/nano.specs
+```
+Without this fix, the vendored `bldc/tools/gcc-arm-none-eabi-7-2018-q2-update/` toolchain works
+unmodified (used instead of the apt package the first time this was built, before the symlink
+fix above was found).
+
+Flash via USB-DFU (needs `dfu-util`):
 ```bash
 # Unplug, bridge the J5 (BOOT) jumper, plug back in -- lsusb should now show
 # 0483:df11 STMicroelectronics STM Device in DFU Mode instead of 1d50:606f.
-sudo dfu-util -d 0483:df11 -c 1 -i 0 -a 0 -s 0x08000000:leave -D canable_fw.bin
+sudo dfu-util -d 0483:df11 -c 1 -i 0 -a 0 -s 0x08000000:leave -D CANable_MKS_fw.bin
 # Then remove the J5 jumper and replug -- back to 1d50:606f in normal (non-DFU) mode.
 ```
 J2 (4-pin: 3.3V/SWCLK/GND/SWDIO) is an alternative SWD flashing/debug path if a probe is
