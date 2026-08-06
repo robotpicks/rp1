@@ -23,10 +23,10 @@ is gone. The wire protocol did not change with that move -- only the process tha
 | Node                  | DroneCAN node ID |
 |-----------------------|------------------|
 | PC (`vesc_dronecan_driver`) | 42 (the `node_id` hardware param in `urdf/rp1_drive.urdf`) |
-| VESC front-left       | TBD -- set via VESC Tool's UAVCAN page, 1-127, must be unique on the bus |
-| VESC front-right      | TBD |
-| VESC rear-left        | TBD |
-| VESC rear-right       | TBD |
+| VESC front-left       | 1 -- confirmed on the bench via `tools/can_vesc_test.py listen` (2026-08-06) |
+| VESC front-right      | 2 |
+| VESC rear-left        | 3 |
+| VESC rear-right       | 4 |
 
 **Never assign node ID `0`.** In UAVCAN/DroneCAN, `0` is reserved for "anonymous" -- the source
 address a node without an assigned ID uses (e.g. during dynamic node ID allocation), not a valid
@@ -86,6 +86,23 @@ joint carries the index directly.
 encoder and a 3-Hall-sensor setup available to wire up, but only one can be selected as the
 active feedback sensor at a time (a per-motor VESC Tool FOC configuration choice). **Decision
 (2026-07-30): use the Hall sensors.**
+
+**Correction (2026-08-06): confirmed on the bench that the Hall sensor connector is NOT plugged
+in on any of the 4 drive motors** -- the "near-certainly already factory-wired" assumption below
+was wrong, or the connector was disconnected at some point since. All 4 are therefore currently
+running on sensorless-only startup, not the intended Hall+sensorless hybrid. This plausibly
+explains the elevated current draw all 4 wheels showed on their first full-pipeline `RPMCommand`
+spin (a plain duty-cycle `RawCommand` pulse -- see the VESC UAVCAN configuration section's
+`s_pid_min_erpm` note above -- doesn't go through the speed-PID's startup ramp the same way, so
+`tools/can_vesc_test.py pulse` wouldn't have surfaced this) -- sensorless FOC's open-loop startup
+ramp draws more current than a Hall-commutated start, and one wheel (rear-left, esc_index 3)
+drew dramatically more than the other three (56A, then 16A after reseating an unrelated loose
+phase connector on that unit -- still ~15x the other wheels' ~1A for a comparable commanded
+speed). Wiring up the Hall connector on all 4 per the original decision is still the intended
+end state and hasn't been done yet -- deliberately deferred for now (2026-08-06 decision:
+continue bring-up on sensorless-only startup, since no overheating has been observed and it
+does spin all 4 wheels; revisit Hall wiring before trusting this under real driving load/duty
+cycle, not just a bench pulse test).
 - The drive units are sealed hub motors (`ZLLG16ASM800`) -- Hall sensors are near-certainly
   already factory-wired inside; retrofitting an external AB encoder onto an already-sealed hub
   motor would need mechanical rework that may not even be possible without a custom part.
@@ -144,6 +161,45 @@ in firmware 7.00 as `raw_val = cmd.data[esc_index] / 8192.0` (int14 range -8192.
 -1.0..1.0 duty), see `libcanard/canard_driver.c` around the `RawCommand` handler. Re-confirm
 against `/home/user/dev/bldc` if the firmware version changes.
 
+**Required per drive VESC: lower "Minimum ERPM" (`s_pid_min_erpm`) below the robot's real
+operating range.** Discovered 2026-08-06: with all 4 drive VESCs at firmware's default
+`s_pid_min_erpm` (900), full-stick teleop (`rp1_teleop`'s `scale_linear: 1.0` m/s) never spins
+any wheel, even though `tools/can_vesc_test.py listen` confirms `esc.RPMCommand` frames reach
+the bus with the right per-wheel ERPM values (peaking ~310 ERPM at full stick, computed as wheel
+rad/s x `kRadPerSecToRpm` x `gear_ratio` x `motor_pole_pairs`, matching what
+`vesc_dronecan_driver` actually sends). Root cause is firmware, not this repo:
+`mcpwm_foc_set_pid_speed()` (`bldc/motor/mcpwm_foc.c`) only transitions the motor into
+`MC_STATE_RUNNING` when `fabsf(rpm) >= motor->m_conf->s_pid_min_erpm` -- below that ERPM the
+speed-PID stays disabled and the motor never outputs any current, however long the command is
+held. This gate is specific to the closed-loop speed-command path
+(`uavcan.equipment.esc.RPMCommand` -> `mc_interface_set_pid_speed()` -> here) -- it does not
+exist on the open-loop duty-cycle path (`RawCommand` -> `mc_interface_set_duty()`), which is why
+`tools/can_vesc_test.py pulse` spun all 4 wheels individually with no issue while the full
+ros2_control pipeline (which only ever sends `RPMCommand`) span none of them. Fix: VESC Tool ->
+Motor Settings -> FOC -> Speed Controller -> **Minimum ERPM**, set well below this robot's
+commanded range (e.g. 0-50) on all 4 drive VESCs. **Applied 2026-08-06** to all 4 -- confirmed
+3 of 4 wheels (front-left, front-right, rear-right) now spin correctly under the full
+ros2_control pipeline. Rear-left (esc_index 3) is still not right after the fix -- see the
+Hall-sensor correction above and the open issue immediately below.
+
+**Open issue (2026-08-06): rear-left (esc_index 3) still misbehaves after the above fixes.**
+It briefly drew 56A during its first `RPMCommand` test (all other wheels ~1A); a loose phase
+connector was found and reseated, dropping that to 16A, still ~15x the other wheels for a
+comparable commanded speed. An isolated duty-cycle `pulse` test afterward showed the rpm
+oscillating (0->30s->0 repeatedly) under a *constant* commanded duty, with current spiking
+(up to 8A) and briefly going negative -- the signature of the motor repeatedly losing
+commutation lock and restarting its startup ramp, not a clean spin-up. `esc.Status.error_count`
+(firmware's live fault code) stayed `0`/`NONE` throughout, which weighs against a hard/detected
+ESC fault (over-current, DRV, gate-driver, over-voltage -- those set a nonzero code) but doesn't
+rule out subtler hardware degradation (partial MOSFET/gate-driver damage, current-sensor drift)
+possibly caused by that initial 56A event. Leading hypothesis: this unit's FOC motor detection
+(resistance/inductance/flux-linkage, VESC Tool's Motor Settings -> FOC -> Detect wizard) was run
+while the connector was loose and is now stale/wrong -- re-running detection with the connector
+properly seated is the next step. If that doesn't resolve it, swap-test VESC 3 and VESC 4
+(same motors/wiring, swap which ESC drives which) to tell a bad ESC from a bad motor/wiring:
+if the erratic behavior follows the ESC, it's the VESC; if it stays with the rear-left motor,
+it isn't. Not yet resolved as of this writing.
+
 ## Steering actuator convention (ahead of the MVP's "no steering joints" phasing)
 
 Firmware 7.00 (`add-actuator-arraycommand` branch, `/home/user/dev/bldc` commit `a242b9ae`)
@@ -163,10 +219,15 @@ numeric value used as `actuator_id`), depending only on how the PC side addresse
 | 3 (Rear-right)  | 4 | 8 |
 
 All 8 VESCs (4 drive + 4 steering) are now physically installed on the robot -- this is no
-longer a bench-only subset. Actual bus presence/configuration of each still needs verifying
-per-unit (e.g. via `tools/can_vesc_test.py listen`, or `tools/can_vesc_gui.py` for the same
-per-esc_index/node_id/UUID/rpm/voltage/current/temp view as a live-updating table instead of a
-fixed-duration snapshot), separately from physical installation.
+longer a bench-only subset. `tools/can_vesc_test.py listen` confirms all 8 esc_index values
+(1-8) present on the bus with no collisions and no anonymous node IDs (`tools/can_vesc_gui.py`
+gives the same per-esc_index/node_id/UUID/rpm/voltage/current/temp view as a live-updating
+table instead of a fixed-duration snapshot). The 4 drive wheels (esc_index 1-4) are further
+confirmed spinning correctly in the right direction via `tools/can_vesc_test.py pulse`, one
+wheel at a time, wheels off the ground (2026-08-06) -- `wiring.md`'s bring-up steps 2-3. The 4
+steering actuators (actuator_id 5-8) are bus-present but not yet exercised with a real
+`actuator.ArrayCommand` -- firmware support for that message is on a non-mainline branch (see
+below), so there is no equivalent pulse test for them yet.
 
 - `Command.command_type` -- only `COMMAND_TYPE_POSITION` (1) is implemented in firmware; the
   other DSDL-defined types (UNITLESS/FORCE/SPEED/PWM) are not handled.

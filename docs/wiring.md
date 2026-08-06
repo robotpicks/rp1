@@ -176,6 +176,15 @@ Two levels, from least to most CAN-realistic:
    ROS2 pipeline) spins it correctly.
 3. Repeat for all 4 wheels.
 4. Bring up the full ROS2 pipeline (`ros2 launch rp1_bringup rp1_mvp.launch.py`), wheels off
-   the ground first, with the deadman button held.
+   the ground first, with the deadman button held. **Resolved 2026-08-06 for 3 of 4 wheels**:
+   wheels initially stayed still here even with step 2-3 passing and `esc.RPMCommand` confirmed
+   reaching the bus with correct values -- each drive VESC's "Minimum ERPM" (`s_pid_min_erpm`,
+   default 900) was above this robot's actual commanded ERPM range, so the firmware's speed-PID
+   never left its disabled state. Fixed by lowering it (VESC Tool -> Motor Settings -> FOC ->
+   Speed Controller) on all 4 drive VESCs -- see `docs/can_id_map.md`'s VESC UAVCAN configuration
+   section for the full writeup. Front-left, front-right and rear-right now spin correctly under
+   the full pipeline; **rear-left (esc_index 3) is still an open issue**, currently suspected to
+   be a stale FOC motor detection from when a phase connector on that unit was loose (see
+   `can_id_map.md`'s open-issue note) -- not yet resolved.
 5. On-ground drive test, low speed limits first (cap the teleop `scale_linear`/`scale_angular`
    in `rp1_teleop`'s config -- there is no separate max_wheel_speed knob any more).
