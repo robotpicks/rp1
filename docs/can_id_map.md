@@ -164,7 +164,9 @@ numeric value used as `actuator_id`), depending only on how the PC side addresse
 
 All 8 VESCs (4 drive + 4 steering) are now physically installed on the robot -- this is no
 longer a bench-only subset. Actual bus presence/configuration of each still needs verifying
-per-unit (e.g. via `tools/can_vesc_test.py listen`), separately from physical installation.
+per-unit (e.g. via `tools/can_vesc_test.py listen`, or `tools/can_vesc_gui.py` for the same
+per-esc_index/node_id/UUID/rpm/voltage/current/temp view as a live-updating table instead of a
+fixed-duration snapshot), separately from physical installation.
 
 - `Command.command_type` -- only `COMMAND_TYPE_POSITION` (1) is implemented in firmware; the
   other DSDL-defined types (UNITLESS/FORCE/SPEED/PWM) are not handled.
