@@ -19,6 +19,15 @@ Off"); a bus-off needs a manual down/up (or replug) to clear. Install once:
 sudo cp tools/80-can0-up.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
+This is deliberately a udev rule (`RUN+=`), not a `systemd-networkd` `.network` file, even though
+networkd supports a declarative `[CAN] BitRate=` section: udev bring-up doesn't depend on which
+network stack (if any) is active/managing the interface, so it works the same whether a given
+machine runs networkd, NetworkManager, or neither. If a machine already has its own
+networkd/NetworkManager-based CAN config (some benches do -- check `networkctl status can0` /
+`nmcli device status`), that's fine to leave in place alongside this rule; both converging on the
+same bitrate/up state isn't a conflict worth resolving, just don't rely on one machine's networkd
+setup existing on another.
+
 **Adapter firmware**: confirmed on the bench 2026-08-06 for a MKS CANable V1.0 PRO. If it
 enumerates as `1d50:606f` with USB strings `bytewerk` / "candleLight USB to CAN adapter" rather
 than `canable.io` / "canable gs_usb", it's running an older candleLight_fw build. Reflash via
