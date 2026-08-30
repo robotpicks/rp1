@@ -15,7 +15,9 @@ Three checks, because each is a claim the others don't make:
                   in /joint_states. This is the one that would catch a units error: the value
                   survives rad/s -> mechanical RPM -> ERPM -> the sim -> mechanical RPM -> rad/s
                   only if the gear ratio and pole-pair handling agree at both ends.
-  2. telemetry -- expect a real per-ESC voltage on /dynamic_joint_states. Separate path from the
+  2. telemetry -- expect a real per-ESC voltage on /esc_telemetry_broadcaster/gpio_states
+                  (gpio_controllers; this ROS release's joint_state_broadcaster dropped
+                  /dynamic_joint_states and <gpio> interfaces with it). Separate path from the
                   joint states above (<gpio> state interfaces, not joint interfaces) and the one
                   the ELRS handset telemetry hangs off, so a joints-only check would miss it
                   break. This phase is why the checker needs the real hardware component and not
@@ -36,7 +38,7 @@ import sys
 import time
 
 import rclpy
-from control_msgs.msg import DynamicJointState
+from control_msgs.msg import DynamicInterfaceGroupValues
 from geometry_msgs.msg import TwistStamped
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -64,7 +66,8 @@ class LoopbackChecker(Node):
         # Queues deep enough not to drop samples at the broadcaster's publish rate.
         self.create_subscription(JointState, '/joint_states', self._on_joint_states, 50)
         self.create_subscription(
-            DynamicJointState, '/dynamic_joint_states', self._on_dynamic_states, 50)
+            DynamicInterfaceGroupValues, '/esc_telemetry_broadcaster/gpio_states',
+            self._on_gpio_states, 50)
         self.create_timer(1.0 / publish_rate_hz, self._on_tick)
 
     def _on_tick(self) -> None:
@@ -83,8 +86,8 @@ class LoopbackChecker(Node):
             if name in DRIVE_JOINTS:
                 self._velocity[name] = velocity
 
-    def _on_dynamic_states(self, msg: DynamicJointState) -> None:
-        for name, values in zip(msg.joint_names, msg.interface_values):
+    def _on_gpio_states(self, msg: DynamicInterfaceGroupValues) -> None:
+        for name, values in zip(msg.interface_groups, msg.interface_values):
             if name not in ESC_NAMES:
                 continue
             for interface, value in zip(values.interface_names, values.values):
@@ -119,7 +122,7 @@ class LoopbackChecker(Node):
 
     def telemetry_report(self) -> str:
         if not self._voltage:
-            return 'no per-ESC voltage on /dynamic_joint_states at all'
+            return 'no per-ESC voltage on /esc_telemetry_broadcaster/gpio_states at all'
         seen = ', '.join(f'{name}: {self._voltage[name]:.1f} V' for name in sorted(self._voltage))
         missing = sorted(set(ESC_NAMES) - set(self._voltage))
         if missing:

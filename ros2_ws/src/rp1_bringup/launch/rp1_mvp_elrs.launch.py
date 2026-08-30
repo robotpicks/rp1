@@ -4,7 +4,7 @@ elrs_driver -> /joy -> rp1_teleop -> diff_drive_controller -> vesc_dronecan_driv
 Identical to rp1_mvp.launch.py except the /joy source: there is no joy_node here; the generic
 elrs_driver (elrs_ros submodule) reads the CRSF link and publishes /joy itself. Telemetry back to
 the handset is the second node: rp1_elrs's esc_telemetry_to_battery adapter turns the hardware
-component's /dynamic_joint_states into the /battery that elrs_driver forwards to the RX. Each node
+component's ESC gpio telemetry (esc_telemetry_broadcaster/gpio_states) into the /battery that elrs_driver forwards to the RX. Each node
 loads its package's own default config first, then rp1_bringup's rp1_mvp.yaml on top for the
 robot-specific values (serial port, CAN interface, deadman button).
 

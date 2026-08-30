@@ -3,11 +3,13 @@
 The ExpressLRS driver (`elrs_driver`, from the elrs_ros submodule) is robot-agnostic: it sends
 handset battery telemetry from a standard `sensor_msgs/BatteryState`. rp1's per-wheel voltage and
 current come off the VESCs in uavcan.equipment.esc.Status, which vesc_dronecan_driver exports as
-<gpio> state interfaces; joint_state_broadcaster publishes those on /dynamic_joint_states. This
+<gpio> state interfaces; the esc_telemetry_broadcaster (gpio_controllers/GpioCommandController,
+see rp1_bringup's rp1_controllers.yaml) publishes those on its gpio_states topic. This
 thin node aggregates them into one pack-level BatteryState.
 
 Previously this read rp1_msgs/WheelFeedback from rp1_dronecan_bridge. That node is gone -- the
-DroneCAN traffic is the hardware component's now -- so the source is control_msgs/DynamicJointState
+DroneCAN traffic is the hardware component's now -- so the source is
+control_msgs/DynamicInterfaceGroupValues
 instead. /joint_states carries only position/velocity/effort, which is why this uses the dynamic
 topic: it is the one that carries arbitrary interface names like voltage and current.
 
@@ -16,7 +18,7 @@ serial, failsafe, telemetry framing) is the generic elrs_ros package. See rp1/CL
 """
 
 import rclpy
-from control_msgs.msg import DynamicJointState
+from control_msgs.msg import DynamicInterfaceGroupValues
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from sensor_msgs.msg import BatteryState
@@ -30,7 +32,7 @@ class EscTelemetryToBattery(Node):
         # 'mean' of the ESCs that have reported, or one specific gpio name.
         self.declare_parameter('battery_source', 'mean')
         self.declare_parameter('publish_rate_hz', 5.0)
-        # The <gpio> names in rp1_drive.urdf. Anything else on /dynamic_joint_states is ignored.
+        # The <gpio> names in rp1_drive.urdf. Anything else on the gpio_states topic is ignored.
         self.declare_parameter('esc_names', [
             'esc_front_left', 'esc_front_right', 'esc_rear_left', 'esc_rear_right'])
 
@@ -40,15 +42,19 @@ class EscTelemetryToBattery(Node):
         self._voltage = {}
         self._current = {}
 
+        self.declare_parameter(
+            'gpio_states_topic', '/esc_telemetry_broadcaster/gpio_states')
+
         self._pub = self.create_publisher(BatteryState, 'battery', 10)
         self.create_subscription(
-            DynamicJointState, 'dynamic_joint_states', self._on_state, 10)
+            DynamicInterfaceGroupValues,
+            str(self.get_parameter('gpio_states_topic').value), self._on_state, 10)
 
         rate = self.get_parameter('publish_rate_hz').value
         self.create_timer(1.0 / rate, self._tick)
 
-    def _on_state(self, msg: DynamicJointState) -> None:
-        for name, values in zip(msg.joint_names, msg.interface_values):
+    def _on_state(self, msg: DynamicInterfaceGroupValues) -> None:
+        for name, values in zip(msg.interface_groups, msg.interface_values):
             if name not in self._esc_names:
                 continue
             for interface, value in zip(values.interface_names, values.values):

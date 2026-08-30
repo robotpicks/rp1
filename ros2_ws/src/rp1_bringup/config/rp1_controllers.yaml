@@ -11,24 +11,36 @@ controller_manager:
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
 
+    esc_telemetry_broadcaster:
+      type: gpio_controllers/GpioCommandController
+
     diff_drive_controller:
       type: diff_drive_controller/DiffDriveController
 
-joint_state_broadcaster:
+# Per-ESC voltage/current/temperature used to ride /dynamic_joint_states via two
+# joint_state_broadcaster parameters (publish_dynamic_joint_states, use_urdf_to_filter). That
+# topic and both parameters are gone from this ROS release's joint_state_broadcaster -- it now
+# publishes plain /joint_states only. The <gpio> telemetry therefore gets its own broadcaster:
+# gpio_controllers' GpioCommandController in state-only configuration (no command_interfaces),
+# publishing control_msgs/DynamicInterfaceGroupValues on
+# /esc_telemetry_broadcaster/gpio_states. rp1_elrs's esc_telemetry_to_battery and
+# simulation/check_dronecan_loopback.py both read that topic now.
+esc_telemetry_broadcaster:
   ros__parameters:
-    # Both of these are required, not tuning knobs. rp1's per-ESC voltage/current/temperature is
-    # exported from <gpio> blocks, and /dynamic_joint_states is the only topic that can carry it
-    # (/joint_states is position/velocity/effort only). Two separate defaults suppress it, both
-    # silently -- `ros2 control list_hardware_interfaces` lists all 12 ESC interfaces either way,
-    # and rp1_elrs's esc_telemetry_to_battery just never publishes a /battery, so the handset's
-    # telemetry goes dead with no error anywhere.
-    #
-    #   publish_dynamic_joint_states -- defaults false: the topic is not advertised at all.
-    #   use_urdf_to_filter           -- defaults true: filters the topic down to interfaces whose
-    #                                   prefix is a joint in the URDF, and <gpio> names are not
-    #                                   joints, so all four ESC blocks are dropped.
-    publish_dynamic_joint_states: true
-    use_urdf_to_filter: false
+    gpios:
+      - esc_front_left
+      - esc_front_right
+      - esc_rear_left
+      - esc_rear_right
+    state_interfaces:
+      esc_front_left:
+        interfaces: [voltage, current, temperature]
+      esc_front_right:
+        interfaces: [voltage, current, temperature]
+      esc_rear_left:
+        interfaces: [voltage, current, temperature]
+      esc_rear_right:
+        interfaces: [voltage, current, temperature]
 
 diff_drive_controller:
   ros__parameters:

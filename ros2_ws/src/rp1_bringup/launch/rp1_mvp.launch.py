@@ -152,6 +152,14 @@ def generate_launch_description():
         arguments=['diff_drive_controller', '--param-file', controllers_config],
     )
 
+    esc_telemetry_broadcaster_spawner = Node(
+        package='controller_manager',
+        executable='spawner',
+        name='esc_telemetry_broadcaster_spawner',
+        output='screen',
+        arguments=['esc_telemetry_broadcaster', '--param-file', controllers_config],
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_mock', default_value='false',
@@ -286,6 +294,12 @@ def generate_launch_description():
             OnProcessExit(
                 target_action=joint_state_broadcaster_spawner,
                 on_exit=[diff_drive_controller_spawner],
+            )
+        ),
+        RegisterEventHandler(
+            OnProcessExit(
+                target_action=diff_drive_controller_spawner,
+                on_exit=[esc_telemetry_broadcaster_spawner],
             )
         ),
     ])
