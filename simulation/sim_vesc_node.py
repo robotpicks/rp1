@@ -82,7 +82,11 @@ def main():
                              "rp1_drive.urdf's motor_pole_pairs (default: 7)")
     args = parser.parse_args()
 
-    wheels = [SimulatedWheel(args.pole_pairs) for _ in range(NUM_WHEELS)]
+    # Keyed by esc_index as it appears in RPMCommand: the URDF assigns the
+    # indices (currently 1..4), and hard-coding a 0-based range here silently
+    # dropped any wheel whose index fell outside it (rear_right at 4 -- found
+    # by CI's loopback check reading 0.000 rad/s on exactly that joint).
+    wheels = {}
     _force_native_socketcan_driver()
     # bitrate is accepted for API compatibility but ignored by the native SocketCAN driver (the
     # interface's real bitrate is set via `ip link`).
@@ -90,7 +94,9 @@ def main():
 
     def on_rpm_command(event):
         for esc_index, erpm in enumerate(event.message.rpm):
-            if esc_index < NUM_WHEELS:
+            if len(wheels) < NUM_WHEELS and esc_index not in wheels and erpm != 0:
+                wheels[esc_index] = SimulatedWheel(args.pole_pairs)
+            if esc_index in wheels:
                 wheels[esc_index].set_command(erpm)
 
     node.add_handler(dronecan.uavcan.equipment.esc.RPMCommand, on_rpm_command)
@@ -101,7 +107,7 @@ def main():
         now = time.monotonic()
         dt = now - last_step_time[0]
         last_step_time[0] = now
-        for esc_index, wheel in enumerate(wheels):
+        for esc_index, wheel in wheels.items():
             wheel.step(dt)
             node.broadcast(dronecan.uavcan.equipment.esc.Status(
                 esc_index=esc_index,
