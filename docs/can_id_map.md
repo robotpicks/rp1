@@ -25,8 +25,8 @@ is gone. The wire protocol did not change with that move -- only the process tha
 | PC (`vesc_dronecan_driver`) | 42 (the `node_id` hardware param in `urdf/rp1_drive.urdf`) |
 | VESC front-left       | 1 -- confirmed on the bench via `tools/can_vesc_test.py listen` (2026-08-06) |
 | VESC front-right      | 2 |
-| VESC rear-left        | 3 |
-| VESC rear-right       | 4 |
+| VESC rear-left        | 3 -- confirmed on the bench via `tools/can_vesc_test.py listen` (2026-09-06), after fixing a scrambled `uavcan_esc_index` (was reporting 7, the steering range, instead of 3) |
+| VESC rear-right       | 4 -- confirmed on the bench via `tools/can_vesc_test.py listen` (2026-09-06), after fixing a scrambled `uavcan_esc_index`; didn't appear on the bus at all before the fix, so its prior (wrong) index value wasn't directly observed |
 
 **Never assign node ID `0`.** In UAVCAN/DroneCAN, `0` is reserved for "anonymous" -- the source
 address a node without an assigned ID uses (e.g. during dynamic node ID allocation), not a valid
@@ -84,8 +84,8 @@ joint carries the index directly.
 
 **Drive motor commutation/speed feedback sensor**: each drive VESC has both an AB (2-channel)
 encoder and a 3-Hall-sensor setup available to wire up, but only one can be selected as the
-active feedback sensor at a time (a per-motor VESC Tool FOC configuration choice). **Decision
-(2026-07-30): use the Hall sensors.**
+active feedback sensor at a time (a per-motor VESC Tool FOC configuration choice, `foc_sensor_mode`).
+**Decision (2026-07-30): use the Hall sensors.**
 
 **Correction (2026-08-06): confirmed on the bench that the Hall sensor connector is NOT plugged
 in on any of the 4 drive motors** -- the "near-certainly already factory-wired" assumption below
@@ -103,18 +103,30 @@ end state and hasn't been done yet -- deliberately deferred for now (2026-08-06 
 continue bring-up on sensorless-only startup, since no overheating has been observed and it
 does spin all 4 wheels; revisit Hall wiring before trusting this under real driving load/duty
 cycle, not just a bench pulse test).
-- The drive units are sealed hub motors (`ZLLG16ASM800`) -- Hall sensors are near-certainly
+
+**Superseded (2026-09-06): moved to the AB encoder instead** (`FOC_SENSOR_MODE_ENCODER_AB`) --
+confirmed live on the bench VESCs (e.g. Rear-left drive reading `foc_sensor_mode = 9`,
+`m_encoder_counts = 16348`), bypassing the Hall-wiring question above entirely rather than
+resolving it. Both the original Hall rationale and the 2026-08-06 sensorless-interim rationale
+below are kept for history; neither reflects the current bench config.
+- ~~The drive units are sealed hub motors (`ZLLG16ASM800`) -- Hall sensors are near-certainly
   already factory-wired inside; retrofitting an external AB encoder onto an already-sealed hub
-  motor would need mechanical rework that may not even be possible without a custom part.
+  motor would need mechanical rework that may not even be possible without a custom part.~~
 - The drive path only needs velocity, never position -- `diff_drive_controller` runs with
-  `position_feedback: false` and integrates position from velocity already (see below); nothing
-  needs the encoder's finer resolution.
-- rp1 is an outdoor ag-robot (dust/moisture/vibration) -- Hall sensors are simple digital
+  `position_feedback: false` and integrates position from velocity already (see below); this
+  still holds with the AB encoder, it just supplies a higher-resolution velocity estimate than
+  Hall or sensorless would have.
+- ~~rp1 is an outdoor ag-robot (dust/moisture/vibration) -- Hall sensors are simple digital
   switches with generous alignment tolerance; an encoder needs tighter mechanical alignment and
-  is more failure-prone in that environment.
-- Hall + sensorless hybrid FOC is VESC's most mature, most widely-used sensor mode, with better
+  is more failure-prone in that environment.~~
+- ~~Hall + sensorless hybrid FOC is VESC's most mature, most widely-used sensor mode, with better
   standstill/low-speed startup behavior than sensorless alone, without encoder-commutation setup
-  complexity.
+  complexity.~~
+
+This VESC firmware's `enc_abi_init()` skips arming the index-pulse EXTI interrupt entirely in
+`FOC_SENSOR_MODE_ENCODER_AB` (no physical index line on a 2-channel AB encoder) -- see
+`bldc/encoder/enc_abi.c`. Without that fix, the unconnected index pin's weak pull-up picked up
+motor-driver switching noise as spurious index pulses, resetting the position count.
 
 Doesn't change the DroneCAN wire protocol either way (`esc.Status.rpm` reporting is the same
 regardless of which sensor feeds the VESC's internal FOC loop) -- this is a VESC Tool
@@ -126,8 +138,9 @@ its own FOC position-control needs (steering does need position, unlike drive).
 **Shared VESC sensor port**: on this VESC hardware, Hall and encoder modes use the *same*
 physical connector -- its pins are just reinterpreted depending on configuration: Hall mode
 reads them as 3 Hall channels + motor temperature; encoder mode reads the same pins as A/B/Z +
-temperature. So the drive VESCs (Hall mode) and the steering VESCs (ABZ encoder mode) use an
-identical port type, just configured differently -- not two different connectors.
+temperature. With the drive VESCs now also in AB encoder mode, drive and steering VESCs use an
+identical port type and a similar encoder configuration, just wired/tuned per motor -- not two
+different connectors.
 
 ## VESC UAVCAN configuration (one-off, per VESC, via VESC Tool over USB)
 
