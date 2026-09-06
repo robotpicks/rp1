@@ -82,6 +82,19 @@ must match the `esc_index` parameter on the corresponding joint in
 `rp1_description/urdf/rp1_drive.urdf`. There is no separate translation layer -- the URDF
 joint carries the index directly.
 
+**Spin direction (`m_invert_direction`, bench-confirmed 2026-09-06):** verified on the bench by
+pulsing each wheel individually with a small positive command and observing whether it drives
+the robot forward. Left and right side wheels are expected to visually spin in *opposite*
+directions for both to drive forward (mirrored mounting) -- judge each wheel by "does it drive
+forward," not by matching rotation direction across sides.
+
+| Wheel | `m_invert_direction` |
+|-------|------------------------|
+| Front-left | 0 (default, already correct) |
+| Front-right | **1** -- spun in reverse at the default (0); flipping this VESC-Tool-side flag corrects it without touching phase wiring |
+| Rear-left | 0 (default, already correct) |
+| Rear-right | **1** -- same fix as front-right |
+
 **Drive motor commutation/speed feedback sensor**: each drive VESC has both an AB (2-channel)
 encoder and a 3-Hall-sensor setup available to wire up, but only one can be selected as the
 active feedback sensor at a time (a per-motor VESC Tool FOC configuration choice, `foc_sensor_mode`).
