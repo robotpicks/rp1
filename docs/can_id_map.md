@@ -123,6 +123,30 @@ steering VESCs' ABZ encoder (see below) -- that's a separate 3-channel encoder f
 absolute-ish position feedback, on a different actuator (`actuator_id`, not `esc_index`) with
 its own FOC position-control needs (steering does need position, unlike drive).
 
+**Correction (2026-09-06): the 4 drive VESCs are actually running the AB encoder, not Hall/
+sensorless.** Confirmed by reading each drive VESC's live `mc_configuration` directly over CAN
+(`foc_sensor_mode`, read via the native VESC comm protocol tunneled through `comm_can.c`'s
+buffer-forwarding frames -- CRC-validated round trip, not VESC Tool): all 4 report
+`foc_sensor_mode = 9` (`FOC_SENSOR_MODE_ENCODER_AB`, the last entry in `datatypes.h`'s
+`mc_foc_sensor_mode` enum), not `0` (sensorless) as the 2026-08-06 correction above assumed. The
+AB encoder built into these hub motors is wired up and in active use -- supersedes the
+"currently running on sensorless-only startup" conclusion above; that note is stale as of this
+entry.
+
+**Open issue, not yet resolved**: `foc_encoder_offset = 0.000` and `foc_encoder_ratio = 100.000`
+identically on all 4 -- both read as suspiciously round/default values rather than genuine
+per-unit detection results (a real detected offset is almost never exactly 0.0 degrees). This
+looks like `foc_sensor_mode` was switched to `ENCODER_AB` without ever running VESC Tool's FOC
+encoder detection wizard (Motor Settings -> FOC -> Encoder -> Detect) to calibrate the actual
+offset/ratio for each physical encoder. Plausible explanation for the "motors feel underpowered"
+symptom noted during 2026-09-06 bring-up driving, separate from and in addition to the
+`s_pid_min_erpm` fix above: with the wrong electrical-angle offset, FOC applies current at the
+wrong angle relative to true rotor position, wasting current as heat instead of torque, even
+though `l_current_max`/`l_current_max_scale`/`l_watt_max` are all confirmed wide open (49.09A,
+1.0, 1500000W) and not the limiting factor. Next step: run the encoder detection wizard on all 4
+drive VESCs, wheels off the ground, then re-verify `foc_encoder_offset`/`foc_encoder_ratio` are
+no longer at these default-looking values.
+
 **Shared VESC sensor port**: on this VESC hardware, Hall and encoder modes use the *same*
 physical connector -- its pins are just reinterpreted depending on configuration: Hall mode
 reads them as 3 Hall channels + motor temperature; encoder mode reads the same pins as A/B/Z +
