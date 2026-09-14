@@ -77,12 +77,30 @@ ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` thro
 
 ## Wheel index convention
 
+**Changed (2026-09-14): the chassis was physically reoriented 90 degrees -- the old right side
+is now the front.** The esc-to-motor wiring and each VESC's own `esc_index`/node ID setting
+(via VESC Tool) did NOT change; only which URDF corner each esc now sits at, since that corner
+naming (`drive_front_left` etc.) tracks the robot's current physical front/back/left/right, not
+a fixed piece of hardware. Confirmed bench mapping: esc_index 2 is now front-left, esc_index 4 is
+now front-right, esc_index 1 is now rear-left, esc_index 3 is now rear-right. Updated in
+`urdf/rp1_drive.urdf` and `urdf/rp1_swerve.urdf` (both the `<joint>` command interfaces and the
+`<gpio>` per-ESC telemetry blocks). `rp1_controllers.yaml`'s `left_wheel_names`/
+`right_wheel_names` did not need updating -- those reference the URDF joint names
+(`drive_front_left`, `drive_rear_left`, ...), which still correctly identify the current
+physical left/right sides; only the esc_index behind each joint name changed.
+
+**Not yet re-verified: the "Spin direction" table below.** Its `m_invert_direction` values were
+bench-confirmed against the *old* forward direction (pulsing each wheel and watching whether it
+drove the robot forward, 2026-09-06). Since forward has now been redefined 90 degrees, that
+tuning needs re-checking per esc_index before trusting driving direction under this new
+convention -- not yet done as of this writing.
+
 | Index | Wheel       | ros2_control joint  | DroneCAN esc_index (set on that VESC via VESC Tool) |
 |-------|-------------|---------------------|------------------------------------------------------|
-| 0     | Front-left  | `drive_front_left`  | 1 |
-| 1     | Front-right | `drive_front_right` | 2 |
-| 2     | Rear-left   | `drive_rear_left`   | 3 |
-| 3     | Rear-right  | `drive_rear_right`  | 4 |
+| 0     | Front-left  | `drive_front_left`  | 2 |
+| 1     | Front-right | `drive_front_right` | 4 |
+| 2     | Rear-left   | `drive_rear_left`   | 1 |
+| 3     | Rear-right  | `drive_rear_right`  | 3 |
 
 **`esc_index`/`actuator_id` 0 is deliberately unused** -- 1-8 covers all 8 VESCs (4 drive + 4
 steering) so no VESC is ever left at the field's power-on-default-looking value of 0, keeping
@@ -101,12 +119,17 @@ the robot forward. Left and right side wheels are expected to visually spin in *
 directions for both to drive forward (mirrored mounting) -- judge each wheel by "does it drive
 forward," not by matching rotation direction across sides.
 
-| Wheel | `m_invert_direction` |
-|-------|------------------------|
-| Front-left | 0 (default, already correct) |
-| Front-right | **1** -- spun in reverse at the default (0); flipping this VESC-Tool-side flag corrects it without touching phase wiring |
-| Rear-left | 0 (default, already correct) |
-| Rear-right | **1** -- same fix as front-right |
+**Table below is keyed by esc_index, not wheel position** -- since the wheel-position labels
+were reassigned to different escs on 2026-09-14 (see "Wheel index convention" above), and this
+tuning is a property of each physical esc/motor mount, not of whichever corner it's currently
+assigned to.
+
+| esc_index | Wheel at time of tuning (2026-09-06, old convention) | `m_invert_direction` |
+|-----------|-------------------------------------------------------|------------------------|
+| 1 | Front-left  | 0 (default, already correct) |
+| 2 | Front-right | **1** -- spun in reverse at the default (0); flipping this VESC-Tool-side flag corrects it without touching phase wiring |
+| 3 | Rear-left   | 0 (default, already correct) |
+| 4 | Rear-right  | **1** -- same fix as front-right |
 
 **Drive motor commutation/speed feedback sensor**: each drive VESC has both an AB (2-channel)
 encoder and a 3-Hall-sensor setup available to wire up, but only one can be selected as the
