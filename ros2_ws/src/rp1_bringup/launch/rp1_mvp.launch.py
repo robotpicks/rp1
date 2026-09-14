@@ -12,6 +12,13 @@ docs/can_id_map.md. DroneCAN itself is unchanged; only the process that speaks i
   rviz:=true additionally starts rviz2.
   can_iface:=vcan0 points the hardware component at a different SocketCAN interface -- what
   `robotpicks.sh smoke dronecan` uses to run this whole pipeline against a virtual bus.
+  front_is:=right (default) / front_is:=front selects which esc_index-to-corner mapping the
+  URDF gets built with, since the chassis's physical orientation has changed on the bench (see
+  docs/can_id_map.md's "Wheel index convention"): 'right' matches the current physical state
+  (2026-09-14 reorientation, old right side is now front -- esc2=FL, esc4=FR, esc1=RL, esc3=RR);
+  'front' is the original, pre-reorientation mapping (esc1=FL, esc2=FR, esc3=RL, esc4=RR). Pick
+  whichever matches how the chassis is actually sitting right now -- picking the wrong one won't
+  error, it'll just make the stick's "forward" drive the robot sideways.
   teleop:=false drops joy_node and teleop_node, leaving /diff_drive_controller/cmd_vel free for
   something else to drive (the smoke check, a nav stack, `ros2 topic pub`).
   keyboard:=true starts teleop_twist_keyboard instead (pass teleop:=false alongside it -- both
@@ -69,16 +76,23 @@ from launch.event_handlers import OnProcessExit
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+# esc_index per corner for each front_is preset -- see docs/can_id_map.md's "Wheel index
+# convention" for the bench history behind these two mappings.
+FRONT_IS_PRESETS = {
+    'right': {'front_left': 2, 'front_right': 4, 'rear_left': 1, 'rear_right': 3},
+    'front': {'front_left': 1, 'front_right': 2, 'rear_left': 3, 'rear_right': 4},
+}
+
 
 def _robot_description(context):
-    """Read the URDF and apply the use_mock / can_iface launch arguments to it.
+    """Read the URDF and apply the use_mock / can_iface / front_is launch arguments to it.
 
-    Done in an OpaqueFunction because both edits depend on launch arguments whose values are
-    only known at launch time, and every node below must agree on one description.
+    Done in an OpaqueFunction because all three edits depend on launch arguments whose values
+    are only known at launch time, and every node below must agree on one description.
 
     Editing the URDF text is the only way to reach these: ros2_control takes hardware parameters
     from the <hardware> block of the robot description and nowhere else, so neither the plugin
-    name nor the CAN interface can be overridden as a node parameter.
+    name, the CAN interface, nor a joint's esc_index can be overridden as a node parameter.
     """
     urdf_path = os.path.join(
         get_package_share_directory('rp1_description'), 'urdf', 'rp1_drive.urdf')
@@ -111,6 +125,27 @@ def _robot_description(context):
         raise RuntimeError(
             f'{urdf_path} has no <param name="can_iface"> to override -- the launch argument '
             'would be silently ignored, so refusing to start.')
+
+    front_is = LaunchConfiguration('front_is').perform(context)
+    if front_is not in FRONT_IS_PRESETS:
+        raise RuntimeError(
+            f"front_is:={front_is!r} is not one of {sorted(FRONT_IS_PRESETS)} -- refusing to "
+            "start rather than silently keeping whatever esc_index the URDF file happens to "
+            "have on disk.")
+    esc_index_by_corner = FRONT_IS_PRESETS[front_is]
+    for corner, esc_index in esc_index_by_corner.items():
+        for tag, name_prefix in (('joint', 'drive_'), ('gpio', 'esc_')):
+            # Both the drive joint and its matching <gpio> telemetry block carry the same
+            # esc_index for a given corner (see rp1_drive.urdf's comment) -- swap both so they
+            # never drift apart.
+            description, substitutions = re.subn(
+                rf'(<{tag} name="{name_prefix}{corner}">\s*<param name="esc_index">)\d+',
+                lambda m: m.group(1) + str(esc_index), description, count=1)
+            if substitutions != 1:
+                raise RuntimeError(
+                    f'{urdf_path} has no <{tag} name="{name_prefix}{corner}"> esc_index to '
+                    f'override for front_is:={front_is} -- refusing to start rather than '
+                    'silently driving with the wrong wheel mapping.')
 
     return [
         Node(
@@ -163,6 +198,12 @@ def generate_launch_description():
             'can_iface', default_value='can0',
             description="SocketCAN interface for the hardware component (e.g. vcan0 for a "
                         "virtual bus); overrides the URDF's <param name=\"can_iface\">"),
+        DeclareLaunchArgument(
+            'front_is', default_value='right',
+            description="Which esc_index-to-corner preset to build the URDF with: 'right' "
+                        "(default) matches the chassis's current physical orientation (old "
+                        "right side is now front); 'front' is the original, pre-reorientation "
+                        "mapping. See docs/can_id_map.md's Wheel index convention section."),
         DeclareLaunchArgument(
             'teleop', default_value='true',
             description='Start joy_node + teleop_node. false leaves '
