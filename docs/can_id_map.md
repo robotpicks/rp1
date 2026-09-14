@@ -224,6 +224,13 @@ properly seated is the next step. If that doesn't resolve it, swap-test VESC 3 a
 if the erratic behavior follows the ESC, it's the VESC; if it stays with the rear-left motor,
 it isn't. Not yet resolved as of this writing.
 
+**Resolved (2026-09-14):** the same phase connector had worked loose again -- reseated a second
+time and the erratic behavior (oscillating rpm under constant duty, elevated current) is gone.
+Motor/wiring issue, not the VESC or a stale FOC detection -- the swap-test and re-detection steps
+above were not needed. Given it has now recurred once, treat this connector as a candidate for a
+physical check (strain relief, locking connector, or periodic re-seating) before trusting it
+under real driving load/vibration, not just a bench re-seat.
+
 ## Steering actuator convention (ahead of the MVP's "no steering joints" phasing)
 
 Firmware 7.00 (`add-actuator-arraycommand` branch, `/home/user/dev/bldc` commit `a242b9ae`)
