@@ -57,6 +57,19 @@ count. `vesc_dronecan_driver` compensates on the command side, gated by the
 If the fork is ever fixed to scale the command side too, set that parameter `false` and the
 extra factor drops out. `esc.RawCommand` (duty cycle) is no longer used by the runtime path.
 
+**Fixed (2026-09-14): `motor_pole_pairs` was a never-confirmed placeholder (7.0) -- the real
+drive motors have 20 magnet pairs (40 poles), not 7.** Symptom: wheels spun correctly via VESC
+Tool's own RPM/current control (no external pole-pair conversion involved) but were very slow
+and sometimes jittery when driven via `RPMCommand` over CAN. Root cause: `wheelRadPerSecToCommandRpm()`
+converts intended mechanical RPM to ERPM by multiplying by `motor_pole_pairs`; sending 7x instead
+of the correct 20x meant the driver commanded only ~35% of the ERPM actually needed for a given
+wheel speed -- both slower than intended and, at low commanded speeds, close enough to the
+`s_pid_min_erpm` cutoff above to cause intermittent PID engage/disengage jitter. Fixed in
+`urdf/rp1_drive.urdf`/`urdf/rp1_swerve.urdf` (`motor_pole_pairs`, now `20.0`),
+`tools/can_vesc_test.py watch`'s `--pole-pairs` default, and `simulation/sim_vesc_node.py`'s
+`--pole-pairs` default (kept in step so the loopback check in `simulation/README.md` stays
+meaningful).
+
 Per-ESC `voltage`/`current`/`temperature` from the same `Status` messages are exported as
 ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` through
 `joint_state_broadcaster`; `rp1_elrs`'s `esc_telemetry_to_battery` turns them into the handset's

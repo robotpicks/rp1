@@ -299,11 +299,11 @@ def main() -> int:
                               "(CAN bus command) vs esc.Status, continuously.")
     p_watch.add_argument("--seconds", type=float, default=0.0,
                           help="Stop after this many seconds; 0 (default) runs until Ctrl-C.")
-    p_watch.add_argument("--pole-pairs", type=float, default=7.0,
-                          help="motor_pole_pairs from urdf/rp1_drive.urdf (default 7.0) -- used "
-                          "only to convert status_rpm (mechanical) to status_erpm_equiv for "
-                          "comparison against cmd_erpm; doesn't affect what's actually decoded "
-                          "off the bus.")
+    p_watch.add_argument("--pole-pairs", type=float, default=20.0,
+                          help="motor_pole_pairs from urdf/rp1_drive.urdf (default 20.0, 20 "
+                          "magnet pairs / 40 poles) -- used only to convert status_rpm "
+                          "(mechanical) to status_erpm_equiv for comparison against cmd_erpm; "
+                          "doesn't affect what's actually decoded off the bus.")
 
     p_pulse = sub.add_parser("pulse", help="Send a real RawCommand duty-cycle pulse to ONE "
                               "esc_index. WHEELS MUST BE OFF THE GROUND.")

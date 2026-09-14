@@ -178,9 +178,13 @@
       <!-- Motor revolutions per wheel revolution. PLACEHOLDER: §3.4.5 of the mechanical
            request. 1.0 means direct drive. -->
       <param name="gear_ratio">1.0</param>
-      <!-- si_motor_poles / 2 from the VESC motor configuration. PLACEHOLDER: read it off the
-           motor detection results in VESC Tool. -->
-      <param name="motor_pole_pairs">7.0</param>
+      <!-- si_motor_poles / 2 from the VESC motor configuration. Confirmed 2026-09-14: these
+           drive motors have 20 magnet (pole) pairs, i.e. 40 poles -- the previous 7.0 was an
+           unconfirmed placeholder guess and made the driver undercommand ERPM to ~35% of the
+           intended value for a given wheel speed (very slow, and jittery from sitting closer to
+           the s_pid_min_erpm cutoff), while VESC Tool's own RPM/current control (which doesn't
+           go through this conversion) was unaffected. -->
+      <param name="motor_pole_pairs">20.0</param>
       <!-- VESC firmware is asymmetric about RPM units on the wire: esc.Status.rpm is divided by
            pole pairs before sending (mechanical RPM), but handle_esc_rpm_command() feeds
            RPMCommand straight into mc_interface_set_pid_speed() as ERPM. true compensates for

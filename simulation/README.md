@@ -82,7 +82,8 @@ telemetry never arrives, arrives at the wrong scale, or latches the last command
 
 The scale check is the interesting one: the commanded speed only survives the round trip
 (rad/s → mechanical RPM → ERPM → `sim_vesc_node` → mechanical RPM → rad/s) if `motor_pole_pairs`
-in `rp1_drive.urdf` matches `sim_vesc_node.py --pole-pairs`. Both default to 7. Run this against
+in `rp1_drive.urdf` matches `sim_vesc_node.py --pole-pairs`. Both default to 20 (20 magnet
+pairs / 40 poles). Run this against
 the real hardware component, not `use_mock:=true` — mock leaves the ESC telemetry at NaN and the
 voltage phase will (correctly) fail.
 

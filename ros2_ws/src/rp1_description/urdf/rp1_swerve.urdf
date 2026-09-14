@@ -252,7 +252,9 @@
       <param name="can_iface">can0</param>
       <param name="node_id">42</param>
       <param name="gear_ratio">1.0</param>
-      <param name="motor_pole_pairs">7.0</param>
+      <!-- Drive motors have 20 magnet pairs (40 poles), confirmed 2026-09-14 -- see
+           rp1_drive.urdf's motor_pole_pairs comment. -->
+      <param name="motor_pole_pairs">20.0</param>
       <param name="command_rpm_is_erpm">true</param>
     </hardware>
 

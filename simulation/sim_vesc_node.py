@@ -15,7 +15,8 @@ the stack most likely to be wrong and the loopback check exists to catch it:
   Status.rpm out -- mechanical RPM. sendEscStatus() divides by pole pairs before transmitting.
 
 So a rounded trip through here only lands back where it started if the caller's motor_pole_pairs
-matches --pole-pairs. Both default to 7, the placeholder in rp1_drive.urdf.
+matches --pole-pairs. Both default to 20 (20 magnet pairs / 40 poles, confirmed 2026-09-14 --
+see rp1_drive.urdf's motor_pole_pairs comment).
 
 Wheel dynamics are a simple rate-limited approach to the target, not a physical motor model --
 good enough to see plausible-looking, moving telemetry.
@@ -77,9 +78,9 @@ def main():
     parser.add_argument('--iface', default='vcan0', help='SocketCAN interface (default: vcan0)')
     parser.add_argument('--node-id', type=int, default=10, help='this simulator\'s DroneCAN node ID')
     parser.add_argument('--status-rate-hz', type=float, default=10.0)
-    parser.add_argument('--pole-pairs', type=float, default=7.0,
+    parser.add_argument('--pole-pairs', type=float, default=20.0,
                         help="motor pole pairs, for the ERPM<->mechanical conversion; must match "
-                             "rp1_drive.urdf's motor_pole_pairs (default: 7)")
+                             "rp1_drive.urdf's motor_pole_pairs (default: 20)")
     args = parser.parse_args()
 
     wheels = [SimulatedWheel(args.pole_pairs) for _ in range(NUM_WHEELS)]
