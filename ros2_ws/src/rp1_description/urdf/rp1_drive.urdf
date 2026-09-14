@@ -190,6 +190,11 @@
            RPMCommand straight into mc_interface_set_pid_speed() as ERPM. true compensates for
            that. Set false only after the firmware fork scales the command side too. -->
       <param name="command_rpm_is_erpm">true</param>
+      <!-- Safety watchdog (2026-09-14): if ANY configured drive esc_index hasn't sent an
+           esc.Status within this many seconds -- never showed up on the bus at all, or dropped
+           off mid-run -- the driver commands zero RPM to ALL drive wheels, not just the missing
+           one, until every esc_index is heard from again. See vesc_dronecan_ros's README. -->
+      <param name="esc_timeout_sec">0.5</param>
     </hardware>
 
     <!-- esc_index assignments below reflect the 2026-09-14 90-degree chassis reorientation

@@ -256,6 +256,8 @@
            rp1_drive.urdf's motor_pole_pairs comment. -->
       <param name="motor_pole_pairs">20.0</param>
       <param name="command_rpm_is_erpm">true</param>
+      <!-- Safety watchdog (2026-09-14) -- see rp1_drive.urdf and vesc_dronecan_ros's README. -->
+      <param name="esc_timeout_sec">0.5</param>
     </hardware>
 
     <!-- esc_index assignments below reflect the 2026-09-14 90-degree chassis reorientation
