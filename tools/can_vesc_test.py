@@ -5,7 +5,7 @@ ros2_control/diff_drive_controller entirely, for docs/wiring.md's "Bring-up orde
 correctly. Repeat for all 4 wheels.") -- before trusting the full ROS2 pipeline with all 4 at
 once.
 
-Two modes:
+Three modes:
 
   listen   Passive: reports which esc_index values are broadcasting esc.Status, and their
            rpm/voltage/current/temperature. Sends nothing -- always safe, run this first to
@@ -18,6 +18,19 @@ Two modes:
            VESC Tool's own per-device UUID cache -- any device VESC Tool shows as not cached is
            one this esc_index/CAN ID assignment hasn't been made permanent for yet, and the UUID
            printed here is what lets you tell physical units apart on the bench before doing so.
+  watch    Passive, continuous (Ctrl-C to stop): live table of the esc.RPMCommand ERPM actually
+           on the bus per esc_index (the "CAN bus command" -- what vesc_dronecan_driver really
+           sent, decoded straight off the wire, not what the code intended to send) next to that
+           esc_index's latest esc.Status feedback. Run this while teleop/the full ros2_control
+           pipeline is driving the robot to catch, live: a command that never reaches the bus at
+           all (dead esc_index column), one stuck at 0 while others move (a per-joint bug, e.g.
+           esc_index mixup), a magnitude that doesn't match what full stick should produce (see
+           docs/can_id_map.md's ERPM formula), or a command present but no corresponding rpm in
+           the Status feedback (motor not actually turning -- see docs/can_id_map.md's
+           s_pid_min_erpm gate and Hall/encoder notes for known causes of exactly that symptom).
+           `status_erpm_equiv` converts Status's mechanical RPM back to ERPM
+           (x --pole-pairs) so it's directly comparable to `cmd_erpm` -- the two should track
+           each other at steady state; a persistent gap is the motor not following the command.
   pulse    Sends a real esc.RawCommand duty-cycle pulse to ONE esc_index and nothing else, then
            always sends a zero command back on exit (normal, Ctrl-C, or error). WHEELS MUST BE
            OFF THE GROUND AND THE E-STOP WITHIN REACH -- this moves a real motor. Prompts for
@@ -160,6 +173,87 @@ def cmd_listen(dronecan, node, seconds: float) -> bool:
     return True
 
 
+_WATCH_STALE_AFTER = 1.0   # seconds since last message before a column is shown as stale ("--")
+_WATCH_DROP_AFTER = 10.0   # seconds since last message before an esc_index row is dropped
+_WATCH_REFRESH = 0.2       # seconds between redraws
+
+
+def cmd_watch(dronecan, node, pole_pairs: float, seconds: float) -> None:
+    # cmd_seen/status_seen are separate dicts, not one merged table, because RPMCommand and
+    # Status are independent broadcasts on independent schedules -- a row with a fresh command
+    # and a stale/missing status (or vice versa) is exactly the mismatch this mode exists to
+    # surface, so the two must be able to go stale independently.
+    cmd_seen = {}     # esc_index -> (rpm_value, last_seen)
+    status_seen = {}  # esc_index -> (rpm, voltage, current, temperature, last_seen)
+
+    def on_rpm_command(event):
+        now = time.monotonic()
+        for esc_index, value in enumerate(event.message.rpm):
+            if esc_index == 0:
+                continue  # esc_index 0 is deliberately unused, see docs/can_id_map.md
+            cmd_seen[esc_index] = (value, now)
+
+    def on_status(event):
+        s = event.message
+        status_seen[s.esc_index] = (s.rpm, s.voltage, s.current, s.temperature, time.monotonic())
+
+    node.add_handler(dronecan.uavcan.equipment.esc.RPMCommand, on_rpm_command)
+    node.add_handler(dronecan.uavcan.equipment.esc.Status, on_status)
+
+    print(f"Watching esc.RPMCommand (CAN bus command) + esc.Status on the bus"
+          + (f" for {seconds:.0f}s" if seconds > 0 else " until Ctrl-C") + "...")
+    is_tty = sys.stdout.isatty()
+    deadline = time.monotonic() + seconds if seconds > 0 else None
+    headers = ("esc_index", "label", "cmd_erpm", "cmd_age", "status_rpm", "status_erpm_equiv",
+               "status_age")
+    try:
+        while deadline is None or time.monotonic() < deadline:
+            try:
+                node.spin(timeout=0)
+            except Exception as exc:  # noqa: BLE001 - a bad received frame must not kill this
+                print(f"...spin error, ignoring: {exc}")
+            now = time.monotonic()
+            for table, ttl in ((cmd_seen, _WATCH_DROP_AFTER), (status_seen, _WATCH_DROP_AFTER)):
+                for key in [k for k, v in table.items() if now - v[-1] > ttl]:
+                    del table[key]
+
+            rows = []
+            for idx in sorted(set(cmd_seen) | set(status_seen)):
+                label, _task = _label_and_task(idx)
+                if idx in cmd_seen:
+                    value, last_seen = cmd_seen[idx]
+                    age = now - last_seen
+                    cmd_col = str(value) if age <= _WATCH_STALE_AFTER else f"({value}, stale)"
+                    cmd_age = f"{age:.1f}"
+                else:
+                    cmd_col, cmd_age = "no RPMCommand seen", "--"
+                if idx in status_seen:
+                    rpm, _volt, _cur, _temp, last_seen = status_seen[idx]
+                    age = now - last_seen
+                    status_col = str(rpm) if age <= _WATCH_STALE_AFTER else f"({rpm}, stale)"
+                    erpm_equiv = f"{rpm * pole_pairs:.0f}"
+                    status_age = f"{age:.1f}"
+                else:
+                    status_col, erpm_equiv, status_age = "no Status seen", "--", "--"
+                rows.append((str(idx), label, cmd_col, cmd_age, status_col, erpm_equiv,
+                             status_age))
+
+            if is_tty:
+                print("\x1b[2J\x1b[H", end="")  # clear screen + move cursor home
+            if not rows:
+                print("No esc.RPMCommand or esc.Status seen yet...")
+            else:
+                widths = [max(len(h), *(len(r[i]) for r in rows)) for i, h in enumerate(headers)]
+                row_fmt = "  " + "  ".join(f"{{:<{w}}}" for w in widths)
+                print(row_fmt.format(*headers))
+                print(row_fmt.format(*("-" * w for w in widths)))
+                for row in rows:
+                    print(row_fmt.format(*row))
+            time.sleep(_WATCH_REFRESH)
+    except KeyboardInterrupt:
+        pass
+
+
 def cmd_pulse(dronecan, node, esc_index: int, duty: float, seconds: float) -> None:
     raw_val = max(-8191, min(8191, int(round(duty * 8192))))
     # Only elements up to esc_index are included -- a VESC only reacts if ITS esc_index has an
@@ -201,6 +295,16 @@ def main() -> int:
                                "values are broadcasting esc.Status.")
     p_listen.add_argument("--seconds", type=float, default=5.0)
 
+    p_watch = sub.add_parser("watch", help="Passive, always safe: live esc.RPMCommand "
+                              "(CAN bus command) vs esc.Status, continuously.")
+    p_watch.add_argument("--seconds", type=float, default=0.0,
+                          help="Stop after this many seconds; 0 (default) runs until Ctrl-C.")
+    p_watch.add_argument("--pole-pairs", type=float, default=7.0,
+                          help="motor_pole_pairs from urdf/rp1_drive.urdf (default 7.0) -- used "
+                          "only to convert status_rpm (mechanical) to status_erpm_equiv for "
+                          "comparison against cmd_erpm; doesn't affect what's actually decoded "
+                          "off the bus.")
+
     p_pulse = sub.add_parser("pulse", help="Send a real RawCommand duty-cycle pulse to ONE "
                               "esc_index. WHEELS MUST BE OFF THE GROUND.")
     p_pulse.add_argument("esc_index", type=int, choices=(1, 2, 3, 4))
@@ -224,6 +328,9 @@ def main() -> int:
     try:
         if args.mode == "listen":
             return 0 if cmd_listen(dronecan, node, args.seconds) else 1
+        elif args.mode == "watch":
+            cmd_watch(dronecan, node, args.pole_pairs, args.seconds)
+            return 0
         else:
             print("*** WHEELS MUST BE OFF THE GROUND AND THE E-STOP WITHIN REACH ***")
             reply = input(f"About to pulse esc_index={args.esc_index} at duty="
