@@ -242,6 +242,20 @@ For each of the 4 VESCs: App Settings -> General -> CAN Mode = **VESC+UAVCAN**, 
 This is a bench/setup-time activity done over VESC Tool's own USB link -- the runtime control
 path never touches VESC Tool.
 
+**Firmware command-loss failsafe (`timeout_msec`/`timeout_brake_current`, App Settings ->
+General -> Timeout): confirmed 2026-09-14 at firmware defaults (1000ms / 0.0A) on esc_index 3**
+(rear-right, read directly over USB via `vesc_tool --getAppConf`, not CAN-forwarded -- see
+below). This is a separate, lower-level failsafe from `vesc_dronecan_ros`'s `esc_timeout_sec`
+watchdog: each VESC independently coasts (0A, not active braking, at this default) if *it*
+personally stops receiving a valid `esc.RPMCommand` for 1s, regardless of what's happening to any
+other VESC on the bus -- see `bldc/timeout.c`. Not independently re-confirmed on esc_index 1, 2,
+4 -- `vesc_tool --canFwd` reproducibly failed with a serial I/O error reaching any of them
+(including esc_index 1, known-good/responding on the bus), which looks like a sandbox/USB-serial
+quirk in the CAN-forwarding code path rather than a real fault, since a direct (non-forwarded)
+read over the same USB link worked cleanly. Assumed identical (same `Flipsky_75_RP1` firmware
+image on all 4) but not verified -- re-check directly (move the USB cable to each unit in turn)
+before relying on this for the other three.
+
 `uavcan.equipment.esc.RawCommand`'s `cmd` value maps to VESC's commanded duty cycle: confirmed
 in firmware 7.00 as `raw_val = cmd.data[esc_index] / 8192.0` (int14 range -8192..8191 ->
 -1.0..1.0 duty), see `libcanard/canard_driver.c` around the `RawCommand` handler. Re-confirm
