@@ -4,17 +4,32 @@
 # docs/wiring.md's manual "bring the interface up before launching" step exists to fix by hand
 # -- this rule makes that step unnecessary.
 #
-# Bitrate (1000000) matches the VESCs' configured UAVCAN bitrate per docs/wiring.md -- keep
-# these in sync if that's ever changed. No `restart-ms` here: this bench's gs_usb adapter
-# rejects it ("Error: Device doesn't support restart from Bus Off", confirmed 2026-08-05) --
-# not every gs_usb firmware advertises CAN_CTRLMODE_BERR_REPORTING. If a different adapter is
-# ever swapped in, check `ip -details link show can0` for a `berr-reporting` capability before
-# adding restart-ms back; a bus-off on this adapter needs a manual
+# Explicit bit timing, not `bitrate 1000000`: same 1 Mbit/s, 75% sample point (tq 63 prop-seg 5
+# phase-seg1 6 phase-seg2 4 -- what the kernel's own bitrate-only calculation already picks), but
+# with `sjw 4` instead of the default-computed `sjw 2`. Bench-confirmed 2026-09-15: at sjw 2 this
+# adapter's CAN_RAW_ERR_FILTER traffic was ~60% error-class frames (dominated by FORM errors
+# clustered at the CRC-sequence/EOF tail of the frame -- the one stretch with no bit-stuffing
+# edges to resynchronize on), with `can state` flapping ACTIVE/ERROR-PASSIVE continuously. Root
+# cause: the VESCs' own CAN controllers already run at their hardware max SJW (4 tq -- see
+# `CAN_BTR_SJW(3)` in the bldc repo's comm/comm_can.c), while this adapter defaulted to half that
+# (2 of the `sjw 1..4` its `gs_usb:` capability line advertises it can do), leaving it unable to
+# track as much per-bit drift as the far end tolerates. Raising it to the adapter's own max
+# dropped the error-class fraction to <0.2% and held there with zero new error-pass/error-warn
+# transitions over a sustained 15s capture -- keep these five values in sync with docs/wiring.md
+# if the bitrate's ever changed, and re-derive them (`ip -details link show can0` after a plain
+# `bitrate <rate>` set, then bump the reported `sjw` to its max) rather than assuming they still
+# apply at a different rate.
+#
+# No `restart-ms` here: this bench's gs_usb adapter rejects it ("Error: Device doesn't support
+# restart from Bus Off", confirmed 2026-08-05) even though it does support berr-reporting (its
+# CAN_RAW_ERR_FILTER traffic above wouldn't include per-frame BIT/FORM/STUFF/CRC detail
+# otherwise) -- the two are evidently independent capabilities on this firmware, not one
+# implying the other. A bus-off still needs a manual
 # `ip link set can0 down && ip link set can0 up` (or a replug) to clear.
 #
 # Install (needs root -- not something this repo can do for you):
 #   sudo cp tools/80-can0-up.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
 SUBSYSTEM=="net", ACTION=="add", KERNEL=="can0", \
-  RUN+="/usr/sbin/ip link set $env{INTERFACE} type can bitrate 1000000", \
+  RUN+="/usr/sbin/ip link set $env{INTERFACE} type can tq 63 prop-seg 5 phase-seg1 6 phase-seg2 4 sjw 4", \
   RUN+="/usr/sbin/ip link set $env{INTERFACE} up"
