@@ -57,6 +57,23 @@ count. `vesc_dronecan_driver` compensates on the command side, gated by the
 If the fork is ever fixed to scale the command side too, set that parameter `false` and the
 extra factor drops out. `esc.RawCommand` (duty cycle) is no longer used by the runtime path.
 
+**Fixed (2026-09-14), corrected (2026-09-22): `motor_pole_pairs` was a never-confirmed
+placeholder (7.0).** Symptom: wheels spun correctly via VESC Tool's own RPM/current control (no
+external pole-pair conversion involved) but were very slow and sometimes jittery when driven via
+`RPMCommand` over CAN. Root cause: `wheelRadPerSecToCommandRpm()` converts intended mechanical
+RPM to ERPM by multiplying by `motor_pole_pairs`; sending 7x instead of the correct 10x meant the
+driver commanded only ~70% of the ERPM actually needed for a given wheel speed -- slower than
+intended and, at low commanded speeds, close enough to the `s_pid_min_erpm` cutoff above to cause
+intermittent PID engage/disengage jitter. **The 2026-09-14 fix itself was wrong** -- it set this
+to `20.0` on the claim of "20 magnet pairs (40 poles)", which doubled the ERPM overcommand error
+instead of fixing it (the robot would drive at ~2x the speed `cmd_vel` called for). Correct value
+is `10.0`: the motor is 20-**pole** (confirmed both via `si_motor_poles=20` read live off the
+bench VESC, and via VESC Tool's FOC wizard "Motor Poles" field, which takes pole count, not pole
+pairs), and pole pairs = poles/2. Fixed in `urdf/rp1_drive.urdf`/`urdf/rp1_swerve.urdf`
+(`motor_pole_pairs`, now `10.0`), `tools/can_vesc_test.py watch`'s `--pole-pairs` default, and
+`simulation/sim_vesc_node.py`'s `--pole-pairs` default (kept in step so the loopback check in
+`simulation/README.md` stays meaningful).
+
 Per-ESC `voltage`/`current`/`temperature` from the same `Status` messages are exported as
 ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` through
 `joint_state_broadcaster`; `rp1_elrs`'s `esc_telemetry_to_battery` turns them into the handset's
@@ -64,12 +81,30 @@ ros2_control `<gpio>` state interfaces, which reach `/dynamic_joint_states` thro
 
 ## Wheel index convention
 
+**Changed (2026-09-14): the chassis was physically reoriented 90 degrees -- the old right side
+is now the front.** The esc-to-motor wiring and each VESC's own `esc_index`/node ID setting
+(via VESC Tool) did NOT change; only which URDF corner each esc now sits at, since that corner
+naming (`drive_front_left` etc.) tracks the robot's current physical front/back/left/right, not
+a fixed piece of hardware. Confirmed bench mapping: esc_index 2 is now front-left, esc_index 4 is
+now front-right, esc_index 1 is now rear-left, esc_index 3 is now rear-right. Updated in
+`urdf/rp1_drive.urdf` and `urdf/rp1_swerve.urdf` (both the `<joint>` command interfaces and the
+`<gpio>` per-ESC telemetry blocks). `rp1_controllers.yaml`'s `left_wheel_names`/
+`right_wheel_names` did not need updating -- those reference the URDF joint names
+(`drive_front_left`, `drive_rear_left`, ...), which still correctly identify the current
+physical left/right sides; only the esc_index behind each joint name changed.
+
+**Not yet re-verified: the "Spin direction" table below.** Its `m_invert_direction` values were
+bench-confirmed against the *old* forward direction (pulsing each wheel and watching whether it
+drove the robot forward, 2026-09-06). Since forward has now been redefined 90 degrees, that
+tuning needs re-checking per esc_index before trusting driving direction under this new
+convention -- not yet done as of this writing.
+
 | Index | Wheel       | ros2_control joint  | DroneCAN esc_index (set on that VESC via VESC Tool) |
 |-------|-------------|---------------------|------------------------------------------------------|
-| 0     | Front-left  | `drive_front_left`  | 1 |
-| 1     | Front-right | `drive_front_right` | 2 |
-| 2     | Rear-left   | `drive_rear_left`   | 3 |
-| 3     | Rear-right  | `drive_rear_right`  | 4 |
+| 0     | Front-left  | `drive_front_left`  | 2 |
+| 1     | Front-right | `drive_front_right` | 4 |
+| 2     | Rear-left   | `drive_rear_left`   | 1 |
+| 3     | Rear-right  | `drive_rear_right`  | 3 |
 
 **`esc_index`/`actuator_id` 0 is deliberately unused** -- 1-8 covers all 8 VESCs (4 drive + 4
 steering) so no VESC is ever left at the field's power-on-default-looking value of 0, keeping
@@ -88,12 +123,17 @@ the robot forward. Left and right side wheels are expected to visually spin in *
 directions for both to drive forward (mirrored mounting) -- judge each wheel by "does it drive
 forward," not by matching rotation direction across sides.
 
-| Wheel | `m_invert_direction` |
-|-------|------------------------|
-| Front-left | 0 (default, already correct) |
-| Front-right | **1** -- spun in reverse at the default (0); flipping this VESC-Tool-side flag corrects it without touching phase wiring |
-| Rear-left | 0 (default, already correct) |
-| Rear-right | **1** -- same fix as front-right |
+**Table below is keyed by esc_index, not wheel position** -- since the wheel-position labels
+were reassigned to different escs on 2026-09-14 (see "Wheel index convention" above), and this
+tuning is a property of each physical esc/motor mount, not of whichever corner it's currently
+assigned to.
+
+| esc_index | Wheel at time of tuning (2026-09-06, old convention) | `m_invert_direction` |
+|-----------|-------------------------------------------------------|------------------------|
+| 1 | Front-left  | 0 (default, already correct) |
+| 2 | Front-right | **1** -- spun in reverse at the default (0); flipping this VESC-Tool-side flag corrects it without touching phase wiring |
+| 3 | Rear-left   | 0 (default, already correct) |
+| 4 | Rear-right  | **1** -- same fix as front-right |
 
 **Drive motor commutation/speed feedback sensor**: each drive VESC has both an AB (2-channel)
 encoder and a 3-Hall-sensor setup available to wire up, but only one can be selected as the
@@ -148,6 +188,30 @@ steering VESCs' ABZ encoder (see below) -- that's a separate 3-channel encoder f
 absolute-ish position feedback, on a different actuator (`actuator_id`, not `esc_index`) with
 its own FOC position-control needs (steering does need position, unlike drive).
 
+**Correction (2026-09-06): the 4 drive VESCs are actually running the AB encoder, not Hall/
+sensorless.** Confirmed by reading each drive VESC's live `mc_configuration` directly over CAN
+(`foc_sensor_mode`, read via the native VESC comm protocol tunneled through `comm_can.c`'s
+buffer-forwarding frames -- CRC-validated round trip, not VESC Tool): all 4 report
+`foc_sensor_mode = 9` (`FOC_SENSOR_MODE_ENCODER_AB`, the last entry in `datatypes.h`'s
+`mc_foc_sensor_mode` enum), not `0` (sensorless) as the 2026-08-06 correction above assumed. The
+AB encoder built into these hub motors is wired up and in active use -- supersedes the
+"currently running on sensorless-only startup" conclusion above; that note is stale as of this
+entry.
+
+**Open issue, not yet resolved**: `foc_encoder_offset = 0.000` and `foc_encoder_ratio = 100.000`
+identically on all 4 -- both read as suspiciously round/default values rather than genuine
+per-unit detection results (a real detected offset is almost never exactly 0.0 degrees). This
+looks like `foc_sensor_mode` was switched to `ENCODER_AB` without ever running VESC Tool's FOC
+encoder detection wizard (Motor Settings -> FOC -> Encoder -> Detect) to calibrate the actual
+offset/ratio for each physical encoder. Plausible explanation for the "motors feel underpowered"
+symptom noted during 2026-09-06 bring-up driving, separate from and in addition to the
+`s_pid_min_erpm` fix above: with the wrong electrical-angle offset, FOC applies current at the
+wrong angle relative to true rotor position, wasting current as heat instead of torque, even
+though `l_current_max`/`l_current_max_scale`/`l_watt_max` are all confirmed wide open (49.09A,
+1.0, 1500000W) and not the limiting factor. Next step: run the encoder detection wizard on all 4
+drive VESCs, wheels off the ground, then re-verify `foc_encoder_offset`/`foc_encoder_ratio` are
+no longer at these default-looking values.
+
 **Shared VESC sensor port**: on this VESC hardware, Hall and encoder modes use the *same*
 physical connector -- its pins are just reinterpreted depending on configuration: Hall mode
 reads them as 3 Hall channels + motor temperature; encoder mode reads the same pins as A/B/Z +
@@ -181,6 +245,20 @@ For each of the 4 VESCs: App Settings -> General -> CAN Mode = **VESC+UAVCAN**, 
 
 This is a bench/setup-time activity done over VESC Tool's own USB link -- the runtime control
 path never touches VESC Tool.
+
+**Firmware command-loss failsafe (`timeout_msec`/`timeout_brake_current`, App Settings ->
+General -> Timeout): confirmed 2026-09-14 at firmware defaults (1000ms / 0.0A) on esc_index 3**
+(rear-right, read directly over USB via `vesc_tool --getAppConf`, not CAN-forwarded -- see
+below). This is a separate, lower-level failsafe from `vesc_dronecan_ros`'s `esc_timeout_sec`
+watchdog: each VESC independently coasts (0A, not active braking, at this default) if *it*
+personally stops receiving a valid `esc.RPMCommand` for 1s, regardless of what's happening to any
+other VESC on the bus -- see `bldc/timeout.c`. Not independently re-confirmed on esc_index 1, 2,
+4 -- `vesc_tool --canFwd` reproducibly failed with a serial I/O error reaching any of them
+(including esc_index 1, known-good/responding on the bus), which looks like a sandbox/USB-serial
+quirk in the CAN-forwarding code path rather than a real fault, since a direct (non-forwarded)
+read over the same USB link worked cleanly. Assumed identical (same `Flipsky_75_RP1` firmware
+image on all 4) but not verified -- re-check directly (move the USB cable to each unit in turn)
+before relying on this for the other three.
 
 `uavcan.equipment.esc.RawCommand`'s `cmd` value maps to VESC's commanded duty cycle: confirmed
 in firmware 7.00 as `raw_val = cmd.data[esc_index] / 8192.0` (int14 range -8192..8191 ->
@@ -225,6 +303,13 @@ properly seated is the next step. If that doesn't resolve it, swap-test VESC 3 a
 (same motors/wiring, swap which ESC drives which) to tell a bad ESC from a bad motor/wiring:
 if the erratic behavior follows the ESC, it's the VESC; if it stays with the rear-left motor,
 it isn't. Not yet resolved as of this writing.
+
+**Resolved (2026-09-14):** the same phase connector had worked loose again -- reseated a second
+time and the erratic behavior (oscillating rpm under constant duty, elevated current) is gone.
+Motor/wiring issue, not the VESC or a stale FOC detection -- the swap-test and re-detection steps
+above were not needed. Given it has now recurred once, treat this connector as a candidate for a
+physical check (strain relief, locking connector, or periodic re-seating) before trusting it
+under real driving load/vibration, not just a bench re-seat.
 
 **Speed-PID gain tuning (2026-09-22): stock `s_pid_kp`/`s_pid_ki` (0.004/0.004) oscillate under
 real ground load.** Bench-reproduced the standstill/low-speed oscillation report with all 4

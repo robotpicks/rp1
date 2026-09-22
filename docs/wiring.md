@@ -7,14 +7,28 @@ DroneCAN natively, see `docs/can_id_map.md`). PC side needs a SocketCAN-capable 
 (e.g. CANable/candleLight running `gs_usb`, or an Innomaker USB2CAN) so it shows up as a plain
 Linux `can0` interface -- no custom driver needed. Bring the interface up before launching:
 ```bash
-sudo ip link set can0 type can bitrate 1000000   # match the VESCs' configured UAVCAN bitrate
+sudo ip link set can0 type can tq 63 prop-seg 5 phase-seg1 6 phase-seg2 4 sjw 4
 sudo ip link set can0 up
 ```
+Same 1 Mbit/s, 75% sample point as a plain `bitrate 1000000` would give you -- these are that
+calculation's own tq/prop-seg/phase-seg1/phase-seg2 values, spelled out explicitly so `sjw` can
+be set to 4 instead of the default-computed 2. **Use the explicit form, not `bitrate 1000000`
+alone**: bench-confirmed 2026-09-15, at the default `sjw 2` this adapter ran ~60% error-class
+frames on the bus (FORM errors at the CRC-sequence/EOF tail, `can state` flapping
+ACTIVE/ERROR-PASSIVE) because the VESCs' own CAN controllers run at their hardware max SJW (4 tq
+-- see `CAN_BTR_SJW(3)` in the bldc repo's `comm/comm_can.c`) while this adapter defaulted to
+half that; matching it dropped the error-class fraction to <0.2%, sustained. If the bitrate's
+ever changed, re-derive these five values rather than reuse them: set a plain `bitrate <rate>`
+first, read back what `ip -details link show can0` computed, then reissue with `sjw` bumped to
+whatever max its `gs_usb:` capability line advertises.
+
 **Or make it permanent**: `tools/80-can0-up.rules` (udev rule, confirmed on the bench
-2026-08-05) runs those same two commands automatically on every boot/replug. No automatic
-bus-off recovery, though -- this bench's gs_usb adapter firmware doesn't support
-`restart-ms` (confirmed 2026-08-05, `ip` refuses it: "Device doesn't support restart from Bus
-Off"); a bus-off needs a manual down/up (or replug) to clear. Install once:
+2026-08-05, timing updated 2026-09-15) runs those same two commands automatically on every
+boot/replug. No automatic bus-off recovery, though -- this bench's gs_usb adapter firmware
+doesn't support `restart-ms` (confirmed 2026-08-05, `ip` refuses it: "Device doesn't support
+restart from Bus Off") despite supporting berr-reporting (needed for the per-frame FORM/STUFF/
+BIT/CRC detail above) -- the two are evidently independent capabilities on this firmware. A
+bus-off still needs a manual down/up (or replug) to clear. Install once:
 ```bash
 sudo cp tools/80-can0-up.rules /etc/udev/rules.d/
 sudo udevadm control --reload-rules && sudo udevadm trigger
@@ -186,5 +200,10 @@ Two levels, from least to most CAN-realistic:
    the full pipeline; **rear-left (esc_index 3) is still an open issue**, currently suspected to
    be a stale FOC motor detection from when a phase connector on that unit was loose (see
    `can_id_map.md`'s open-issue note) -- not yet resolved.
-5. On-ground drive test, low speed limits first (cap the teleop `scale_linear`/`scale_angular`
-   in `rp1_teleop`'s config -- there is no separate max_wheel_speed knob any more).
+5. On-ground drive test, Xbox pad pipeline first: verify the controller per the "Controller"
+   section above (`joy_node` + `jstest`/`ros2 topic echo /joy`) before trusting the deadman/axis
+   mapping, then run the full stack with `ros2 launch rp1_bringup rp1_mvp.launch.py` (the Xbox
+   pipeline, not the `_elrs` variant) with low speed limits first (cap the teleop
+   `scale_linear`/`scale_angular` in `rp1_teleop`'s config -- there is no separate
+   max_wheel_speed knob any more). Try the ELRS radio pipeline as a follow-up once the Xbox path
+   is proven out.

@@ -252,30 +252,36 @@
       <param name="can_iface">can0</param>
       <param name="node_id">42</param>
       <param name="gear_ratio">1.0</param>
+      <!-- Drive motors are 20-pole / 10 pole-pairs -- see rp1_drive.urdf's motor_pole_pairs
+           comment for the full 2026-09-14/2026-09-22 correction history. -->
       <param name="motor_pole_pairs">10.0</param>
       <param name="command_rpm_is_erpm">true</param>
+      <!-- Safety watchdog (2026-09-14) -- see rp1_drive.urdf and vesc_dronecan_ros's README. -->
+      <param name="esc_timeout_sec">0.5</param>
     </hardware>
 
+    <!-- esc_index assignments below reflect the 2026-09-14 90-degree chassis reorientation
+         (old right side is now front) -- see docs/can_id_map.md and rp1_drive.urdf. -->
     <joint name="drive_front_left">
-      <param name="esc_index">1</param>
-      <command_interface name="velocity"/>
-      <state_interface name="velocity"/>
-      <state_interface name="position"/>
-    </joint>
-    <joint name="drive_front_right">
       <param name="esc_index">2</param>
       <command_interface name="velocity"/>
       <state_interface name="velocity"/>
       <state_interface name="position"/>
     </joint>
+    <joint name="drive_front_right">
+      <param name="esc_index">4</param>
+      <command_interface name="velocity"/>
+      <state_interface name="velocity"/>
+      <state_interface name="position"/>
+    </joint>
     <joint name="drive_rear_left">
-      <param name="esc_index">3</param>
+      <param name="esc_index">1</param>
       <command_interface name="velocity"/>
       <state_interface name="velocity"/>
       <state_interface name="position"/>
     </joint>
     <joint name="drive_rear_right">
-      <param name="esc_index">4</param>
+      <param name="esc_index">3</param>
       <command_interface name="velocity"/>
       <state_interface name="velocity"/>
       <state_interface name="position"/>
@@ -345,25 +351,25 @@
 
     <!-- Per-ESC telemetry, same as rp1_drive.urdf. -->
     <gpio name="esc_front_left">
-      <param name="esc_index">1</param>
-      <state_interface name="voltage"/>
-      <state_interface name="current"/>
-      <state_interface name="temperature"/>
-    </gpio>
-    <gpio name="esc_front_right">
       <param name="esc_index">2</param>
       <state_interface name="voltage"/>
       <state_interface name="current"/>
       <state_interface name="temperature"/>
     </gpio>
+    <gpio name="esc_front_right">
+      <param name="esc_index">4</param>
+      <state_interface name="voltage"/>
+      <state_interface name="current"/>
+      <state_interface name="temperature"/>
+    </gpio>
     <gpio name="esc_rear_left">
-      <param name="esc_index">3</param>
+      <param name="esc_index">1</param>
       <state_interface name="voltage"/>
       <state_interface name="current"/>
       <state_interface name="temperature"/>
     </gpio>
     <gpio name="esc_rear_right">
-      <param name="esc_index">4</param>
+      <param name="esc_index">3</param>
       <state_interface name="voltage"/>
       <state_interface name="current"/>
       <state_interface name="temperature"/>
