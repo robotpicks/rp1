@@ -61,8 +61,9 @@ def _force_native_socketcan_driver() -> None:
 
 
 # docs/can_id_map.md's wheel index table (drive esc_index 1-4, 0 deliberately unused) and
-# steering convention (actuator_id = drive esc_index + 4, i.e. 5-8).
-_WHEEL_NAMES = {1: "Front-left", 2: "Front-right", 3: "Rear-left", 4: "Rear-right"}
+# steering convention (actuator_id = drive esc_index + 4, i.e. 5-8). Reflects the 2026-09-14
+# 90-degree chassis reorientation -- esc_index-to-corner changed, esc-to-motor wiring did not.
+_WHEEL_NAMES = {2: "Front-left", 4: "Front-right", 1: "Rear-left", 3: "Rear-right"}
 
 
 def _label_and_task(esc_index: int) -> tuple:
