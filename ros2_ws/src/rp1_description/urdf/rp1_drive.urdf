@@ -178,9 +178,9 @@
       <!-- Motor revolutions per wheel revolution. PLACEHOLDER: §3.4.5 of the mechanical
            request. 1.0 means direct drive. -->
       <param name="gear_ratio">1.0</param>
-      <!-- si_motor_poles / 2 from the VESC motor configuration. PLACEHOLDER: read it off the
-           motor detection results in VESC Tool. -->
-      <param name="motor_pole_pairs">7.0</param>
+      <!-- si_motor_poles / 2 from the VESC motor configuration -- drive motor is 20-pole,
+           confirmed on the bench. -->
+      <param name="motor_pole_pairs">10.0</param>
       <!-- VESC firmware is asymmetric about RPM units on the wire: esc.Status.rpm is divided by
            pole pairs before sending (mechanical RPM), but handle_esc_rpm_command() feeds
            RPMCommand straight into mc_interface_set_pid_speed() as ERPM. true compensates for

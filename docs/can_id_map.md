@@ -226,6 +226,41 @@ properly seated is the next step. If that doesn't resolve it, swap-test VESC 3 a
 if the erratic behavior follows the ESC, it's the VESC; if it stays with the rear-left motor,
 it isn't. Not yet resolved as of this writing.
 
+**Speed-PID gain tuning (2026-09-22): stock `s_pid_kp`/`s_pid_ki` (0.004/0.004) oscillate under
+real ground load.** Bench-reproduced the standstill/low-speed oscillation report with all 4
+drive wheels loaded and driving via a real DroneCAN `RPMCommand` bus test (not `RawCommand`):
+holding a constant 355 ERPM command produced feedback swinging across nearly the full 0-390 ERPM
+range with the stock gains, including brief sign flips at true zero command. Two upstream config
+bugs were found and fixed first, since both distort any gain-tuning result if left in place:
+- `motor_pole_pairs` was `7.0` in `rp1_drive.urdf`/`rp1_swerve.urdf` (an unconfirmed placeholder)
+  against a real 20-pole motor (confirmed via VESC Tool's FOC wizard and `si_motor_poles=20` read
+  live off the VESC) -- correct value is `10.0` (poles/2). A separate, independently-drifted copy
+  of the same file elsewhere had gone the other way, to `20.0` (poles, not pole pairs) -- also
+  wrong, also fixed. Wrong in either direction scales every ERPM command the ROS side sends.
+- Front-left and front-right had `can_status_msgs_r1` enabling native VESC CAN status broadcasts
+  (bitmask `15`, four groups at 50Hz) alongside UAVCAN -- this is dead weight on a UAVCAN-only
+  bus and was flooding `can0` badly enough to intermittently drop real `esc.Status` reception
+  from those two VESCs (confirmed via raw CAN sniffing: ~490 extra frames/s from just those two
+  nodes, plus a matching spike in the interface's RX-dropped counter). Fixed by clearing that
+  bitmask to `0` on both.
+
+Automated sweep (`Kp`/`Ki` grid, all 4 wheels driven together over native VESC CAN while
+temporarily in `can_mode=VESC` for reliable CAN-forwarding, scored by tracking error + noise
+against a held target ERPM) found **`s_pid_kp=0.006, s_pid_ki=0.002`** as the best result in the
+`Kp` 0.001-0.01 range and applied it to all 4 drive VESCs. This is a real improvement over stock
+but not a clean fix -- mean tracking error stayed large relative to target throughout that whole
+range, which turned out to be current-limited authority, not settling time (max current only
+2-24A against a 49A limit even at 6s hold). A follow-up sweep an order of magnitude higher
+(`Kp` 0.02-0.10, informed by `foc_math.c`'s P/I terms both being scaled by an extra `1/20`) found
+real torque authority for the first time, but also real instability -- both `Kp=0.02` trials
+tested (`Ki=0.03` and `Ki=0.06`) reached or overshot target with very high variance (stdev
+100-170 ERPM) and drove the robot into a wall on two separate occasions, requiring the E-stop.
+**`Kp>=0.02` should be treated as confirmed unsafe for this drivetrain under real load** without
+a proper test rig (rollers/dyno) that doesn't let the robot actually travel -- not something to
+keep pushing on with the robot free on the floor. `0.006/0.002` is the current deployed value;
+closing the remaining gap likely needs either a rig-based sweep of the untested `Kp` 0.01-0.02
+gap, or reconsidering the control approach rather than continuing to scale stock gains.
+
 ## Steering actuator convention (ahead of the MVP's "no steering joints" phasing)
 
 Firmware 7.00 (`add-actuator-arraycommand` branch, `/home/user/dev/bldc` commit `a242b9ae`)
