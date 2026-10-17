@@ -926,13 +926,23 @@ TEST_F(RP1SwerveControllerTest, OdometryIntegratesStraightLineDistance)
 
   auto subscriber_node = std::make_shared<rclcpp::Node>("test_odom_subscriber");
   nav_msgs::msg::Odometry latest_odom;
-  bool got_odom = false;
+  nav_msgs::msg::Odometry moving_odom;
+  bool got_moving_odom = false;
+  bool got_stopped_odom = false;
   auto subscription = subscriber_node->create_subscription<nav_msgs::msg::Odometry>(
     "/rp1_swerve_controller_test/odom", rclcpp::SystemDefaultsQoS(),
-    [&latest_odom, &got_odom](const nav_msgs::msg::Odometry & msg)
+    [&](const nav_msgs::msg::Odometry & msg)
     {
       latest_odom = msg;
-      got_odom = true;
+      if (std::abs(msg.twist.twist.linear.x) > 0.5)
+      {
+        moving_odom = msg;
+        got_moving_odom = true;
+      }
+      else
+      {
+        got_stopped_odom = true;
+      }
     });
 
   rclcpp::executors::SingleThreadedExecutor executor;
@@ -945,17 +955,28 @@ TEST_F(RP1SwerveControllerTest, OdometryIntegratesStraightLineDistance)
     controller->update(controller->get_node()->now(), period);
     executor.spin_some(std::chrono::milliseconds(5));
   }
-  // A few extra spins in case the realtime publisher's background thread hasn't caught up.
-  for (int attempt = 0; attempt < 50 && !got_odom; ++attempt)
+
+  // try_publish() drops a cycle's message whenever the background publishing thread is still
+  // busy, so the last of the 50 moving cycles may never be published at all -- reading "the
+  // latest message" after a fixed number of spins then sees a pose a few cycles short (CI saw
+  // 0.88 m = 44 cycles). Instead stop the wheels and keep cycling: odometry is explicit Euler
+  // on period, so stopped cycles add exactly nothing, and the first stopped message received is
+  // guaranteed to carry the pose after all 50 moving cycles, whichever earlier ones were dropped.
+  for (auto & iface : drive_velocity_state_)
   {
-    executor.spin_some(std::chrono::milliseconds(10));
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    ASSERT_TRUE(iface->set_value<double>(0.0));
+  }
+  for (int attempt = 0; attempt < 200 && !got_stopped_odom; ++attempt)
+  {
+    controller->update(controller->get_node()->now(), period);
+    executor.spin_some(std::chrono::milliseconds(5));
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
 
-  ASSERT_TRUE(got_odom) << "never received an ~/odom message";
-  // 50 cycles * 0.02s * 1.0 m/s = 1.0 m -- some tolerance since try_publish() can drop a cycle
-  // under contention and the exact cycle count reaching the subscriber isn't guaranteed.
-  EXPECT_NEAR(latest_odom.pose.pose.position.x, 1.0, 0.05);
-  EXPECT_NEAR(latest_odom.pose.pose.position.y, 0.0, 1e-6);
-  EXPECT_NEAR(latest_odom.twist.twist.linear.x, 1.0, 1e-6);
+  ASSERT_TRUE(got_moving_odom) << "never received an ~/odom message while moving";
+  ASSERT_TRUE(got_stopped_odom) << "never received an ~/odom message after stopping";
+  EXPECT_NEAR(moving_odom.twist.twist.linear.x, 1.0, 1e-6);
+  // 50 cycles * 0.02s * 1.0 m/s = 1.0 m, exactly -- see above for why no tolerance is needed.
+  EXPECT_NEAR(latest_odom.pose.pose.position.x, 1.0, 1e-9);
+  EXPECT_NEAR(latest_odom.pose.pose.position.y, 0.0, 1e-9);
 }
