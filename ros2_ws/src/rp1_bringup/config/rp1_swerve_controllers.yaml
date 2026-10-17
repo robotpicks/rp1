@@ -14,12 +14,10 @@ controller_manager:
     rp1_swerve_controller:
       type: rp1_swerve_controller/RP1SwerveController
 
-joint_state_broadcaster:
-  ros__parameters:
-    # Required for the per-ESC/steering-sensor <gpio> telemetry to reach /dynamic_joint_states --
-    # see rp1_controllers.yaml's comment for why both of these default to suppressing it.
-    publish_dynamic_joint_states: true
-    use_urdf_to_filter: false
+# The <gpio> telemetry path moved off joint_state_broadcaster (this release dropped
+# /dynamic_joint_states and its parameters) -- see rp1_controllers.yaml. When the swerve stack
+# grows a telemetry consumer, add a gpio_controllers/GpioCommandController section here covering
+# the steering-sensor and ESC <gpio> blocks of rp1_steering.urdf, like the MVP config does.
 
 rp1_swerve_controller:
   ros__parameters:
